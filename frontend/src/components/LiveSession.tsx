@@ -5,6 +5,7 @@ import WebcamCapture from "./WebcamCapture";
 import { PKEWebSocket } from "@/lib/ws";
 import type { WSIncomingMessage } from "@/lib/types";
 
+
 interface LiveSessionProps {
   exerciseName?: string;
 }
@@ -22,6 +23,18 @@ export default function LiveSession({ exerciseName }: LiveSessionProps) {
   const [framesStreamed, setFramesStreamed] = useState(0);
   const wsRef = useRef<PKEWebSocket | null>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  // Play/pause demo video when session starts/stops
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    if (isStreaming) {
+      video.play().catch(() => {});
+    } else {
+      video.pause();
+      video.currentTime = 0;
+    }
+  }, [isStreaming]);
 
   const addLog = useCallback((type: SessionLog["type"], message: string) => {
     setLogs((prev) => [
@@ -30,10 +43,7 @@ export default function LiveSession({ exerciseName }: LiveSessionProps) {
     ]);
   }, []);
 
-  // Scroll logs to bottom
-  useEffect(() => {
-    logsEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [logs]);
+  // (Removed) Scroll logs to bottom automatically
 
   const handleMessage = useCallback(
     (message: WSIncomingMessage) => {
@@ -149,35 +159,41 @@ export default function LiveSession({ exerciseName }: LiveSessionProps) {
         </div>
       </div>
 
-      {/* Demo Video */}
-      <div className="pke-card p-4">
-        <h3 className="text-sm font-medium text-[var(--pke-text-primary)] mb-2">
-          Example — Correct Squat Form
-        </h3>
-        <video
-          src="/examples/squat.mp4"
-          controls
-          loop
-          muted
-          playsInline
-          className="w-full max-w-md rounded-lg"
-        />
+      {/* Main Content Row: Demo Video & Camera Side by Side */}
+      <div className="flex flex-row gap-6 items-start w-full">
+        {/* Demo Video (Left) */}
+        <div className="flex-1 min-w-0">
+          <div className="pke-card p-4 h-full flex flex-col items-center justify-center">
+            <h3 className="text-sm font-medium text-[var(--pke-text-primary)] mb-2">
+              Example — Correct Squat Form
+            </h3>
+            <video
+              ref={videoRef}
+              src="/examples/squat.mp4"
+              controls
+              loop
+              muted
+              playsInline
+              className="w-full max-w-md rounded-lg"
+            />
+          </div>
+        </div>
+        {/* Camera Panel (Right) */}
+        <div className="flex-1 min-w-0 flex justify-center">
+          <div className="shrink-0 flex justify-center bg-white border border-[#e2e8f0] rounded-sm p-1.5 shadow-sm">
+            <WebcamCapture
+              onLandmarks={handleLandmarks}
+              active={isStreaming}
+              width={640}
+              height={480}
+            />
+          </div>
+        </div>
       </div>
 
-      {/* Camera + Logs Layout */}
-      <div className="flex flex-col xl:flex-row gap-6 items-start w-full">
-        {/* Camera (Left) */}
-        <div className="shrink-0 flex justify-center bg-white border border-[#e2e8f0] rounded-sm p-1.5 shadow-sm">
-          <WebcamCapture
-            onLandmarks={handleLandmarks}
-            active={isStreaming}
-            width={640}
-            height={480}
-          />
-        </div>
-
-        {/* Session Log (Right) */}
-        <div className="border border-[#e2e8f0] bg-white flex flex-col h-[480px] flex-1 w-full min-w-0 shadow-sm">
+      {/* Session Log at Bottom */}
+      <div className="session-log-panel mt-6">
+        <div className="border border-[#e2e8f0] bg-white flex flex-col h-[200px] w-full min-w-0 shadow-sm">
           <div className="px-6 py-4 border-b border-[#e2e8f0] flex items-center justify-between">
             <h3 className="text-sm font-bold uppercase tracking-widest text-[#0f172a]">
               Session Log

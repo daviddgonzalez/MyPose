@@ -1,3 +1,8 @@
+/* Custom layout for session log at bottom */
+.session-log-panel {
+  width: 100%;
+  max-width: 100vw;
+}
 @import "tailwindcss";
 
 /* ─── PKE Design System ──────────────────────────────────── */
