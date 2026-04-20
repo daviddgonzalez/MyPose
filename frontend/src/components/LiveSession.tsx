@@ -8,6 +8,7 @@ import type { WSIncomingMessage, WSFeedbackMessage, StrictnessLevel } from "@/li
 
 interface LiveSessionProps {
   exerciseName?: string;
+  userId?: string;
 }
 
 interface SessionLog {
@@ -16,7 +17,7 @@ interface SessionLog {
   message: string;
 }
 
-export default function LiveSession({ exerciseName }: LiveSessionProps) {
+export default function LiveSession({ exerciseName, userId }: LiveSessionProps) {
   const [isStreaming, setIsStreaming] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const [logs, setLogs] = useState<SessionLog[]>([]);
@@ -84,7 +85,7 @@ export default function LiveSession({ exerciseName }: LiveSessionProps) {
         setIsStreaming(true);
         setFramesStreamed(0);
         addLog("info", "Connected to stream server");
-        ws.sendConfig(strictness, exerciseName || "squat");
+        ws.sendConfig(strictness, exerciseName || "squat", userId);
       },
       onMessage: handleMessage,
       onError: () => addLog("error", "WebSocket connection error"),

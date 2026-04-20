@@ -120,6 +120,7 @@ export interface WSConfigMessage {
   type: "config";
   strictness: StrictnessLevel;
   exercise: string;
+  user_id?: string;
 }
 
 export interface WSResultMessage {

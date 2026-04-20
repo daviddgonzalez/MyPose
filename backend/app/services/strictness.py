@@ -128,7 +128,7 @@ def get_rom_target(exercise_slug: str, joint_name: str, profile: StrictnessProfi
     scaled by the strictness profile.
     Returns 0.0 if the joint is not considered a primary mover for the exercise.
     """
-    targets = _EXERCISE_ROM_TARGETS.get(exercise_slug, {})
+    targets = _EXERCISE_ROM_TARGETS.get(exercise_slug.lower(), {})
     
     # If the joint isn't tracked for ROM in this exercise, target is 0
     base_target = targets.get(joint_name, 0.0)

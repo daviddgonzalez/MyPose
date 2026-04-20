@@ -29,17 +29,34 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     print(f"   Deviation threshold: {settings.deviation_threshold}")
 
     # Store shared state in app.state for access in routes
-    app.state.model = None  # Will hold ST-GCN model once loaded
     app.state.device = settings.model_device
 
-    # TODO (Phase 4): Load ST-GCN model from checkpoint
-    # TODO (Phase 1): Initialize Supabase client singleton
+    # Load ST-GCN model from checkpoint (if available)
+    import os
+    from app.ml.model import PKEModel
+
+    checkpoint = settings.checkpoint_path
+    if os.path.isfile(checkpoint):
+        try:
+            app.state.model = PKEModel.from_checkpoint(
+                checkpoint,
+                device=settings.model_device,
+                block_channels=settings.stgcn_block_channels,
+                hidden_dim=settings.projection_hidden_dim,
+                embedding_dim=settings.embedding_dim,
+            )
+            print(f"   ✓ Model loaded from {checkpoint}")
+        except Exception as e:
+            print(f"   ✗ Failed to load model: {e}")
+            app.state.model = None
+    else:
+        print(f"   ⚠ No checkpoint found at {checkpoint} — running heuristic-only mode")
+        app.state.model = None
 
     yield
 
     # ── Shutdown ─────────────────────────────────────────
     print(" PKE Backend shutting down")
-    # Cleanup resources if needed
 
 
 def create_app() -> FastAPI:

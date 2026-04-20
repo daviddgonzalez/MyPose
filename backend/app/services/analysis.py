@@ -133,19 +133,43 @@ def analyze_session(
         # ── Step 4: Compute per-joint statistics ──────────────────────
         joint_summaries = _compute_joint_summaries(angles, profile, exercise_name)
 
-        # ── Step 5: Compute overall score ─────────────────────────────
-        overall_score = _compute_overall_score(joint_summaries, profile, exercise_name)
+        # ── Step 5: Compute heuristic score ───────────────────────────
+        heuristic_score = _compute_overall_score(joint_summaries, profile, exercise_name)
 
-        # ML-READY: When calibration is available, run the full pipeline here:
-        # if user_centroid is not None and model is not None:
-        #     embedding = model.forward(normalized)
-        #     distance = cosine_distance(embedding, user_centroid)
-        #     passed = distance <= threshold
-        #     # Could also run DTW fallback for joint-level error report
-        #     return SessionFeedback(
-        #         ..., passed=passed, distance_to_centroid=distance,
-        #         calibration_available=True
-        #     )
+        # ── Step 6: ML embedding evaluation (when calibration exists) ─
+        ml_passed = None
+        ml_distance = None
+        calibration_available = False
+
+        if user_centroid is not None and model is not None:
+            try:
+                # Forward pass: normalized tensor → embedding
+                embedding = model.embed(normalized)  # (1, embedding_dim)
+                emb_vec = embedding[0]  # (embedding_dim,)
+
+                # Cosine distance for L2-normalized vectors: 1 - dot(a, b)
+                dot = float(np.dot(emb_vec, user_centroid))
+                ml_distance = float(1.0 - dot)
+
+                effective_threshold = threshold if threshold is not None else settings.deviation_threshold
+                ml_passed = ml_distance <= effective_threshold
+
+                calibration_available = True
+                logger.info(
+                    f"ML evaluation: distance={ml_distance:.4f}, "
+                    f"threshold={effective_threshold:.4f}, passed={ml_passed}"
+                )
+
+                # Map ML distance to a 0-100 score (closer = higher)
+                ml_score = max(0.0, min(100.0, (1 - ml_distance / (effective_threshold * 2)) * 100))
+
+                # Blend heuristic + ML (ML weighted more heavily)
+                overall_score = 0.4 * heuristic_score + 0.6 * ml_score
+            except Exception as e:
+                logger.warning(f"ML embedding failed, using heuristic only: {e}")
+                overall_score = heuristic_score
+        else:
+            overall_score = heuristic_score
 
         message = _generate_feedback_message(overall_score, joint_summaries, duration)
 
@@ -156,7 +180,9 @@ def analyze_session(
             joint_summaries=joint_summaries,
             overall_score=round(overall_score, 1),
             message=message,
-            calibration_available=False,
+            passed=ml_passed,
+            distance_to_centroid=ml_distance,
+            calibration_available=calibration_available,
         )
 
     except Exception as e:

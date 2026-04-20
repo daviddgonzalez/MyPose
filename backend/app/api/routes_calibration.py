@@ -2,12 +2,15 @@
 Calibration Routes.
 
 Manages the user calibration lifecycle: create session → add sequences → finalize.
+Uses in-memory storage for MVP. Swap for Supabase in production.
 """
 
 from __future__ import annotations
 
 import uuid
+import logging
 
+import numpy as np
 from fastapi import APIRouter, HTTPException
 
 from app.utils.schemas import (
@@ -17,8 +20,10 @@ from app.utils.schemas import (
     CalibrationStartResponse,
     CalibrationStatus,
 )
+from app.config import settings
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 # In-memory session store (swap for Supabase in production)
 _sessions: dict[str, dict] = {}
@@ -94,9 +99,10 @@ async def finalize_calibration(session_id: str):
     Finalize the calibration session.
 
     This triggers:
-    1. Embedding generation for all sequences via ST-GCN
-    2. Few-shot fine-tuning of the projection head
-    3. Centroid computation and storage in Supabase/pgvector
+    1. Normalization of all submitted sequences
+    2. Embedding generation via the loaded ST-GCN model
+    3. Few-shot fine-tuning of the projection head
+    4. Centroid computation and in-memory storage
     """
     if session_id not in _sessions:
         raise HTTPException(status_code=404, detail=f"Session {session_id} not found.")
@@ -109,19 +115,92 @@ async def finalize_calibration(session_id: str):
             detail=f"Need at least 3 sequences to calibrate. Current: {len(session['sequences'])}.",
         )
 
-    # TODO (Phase 5): Run calibration pipeline
-    #   - Normalize all sequences
-    #   - Generate embeddings via ST-GCN
-    #   - Fine-tune projection head
-    #   - Compute centroid
-    #   - Store in Supabase
-
     session["status"] = CalibrationStatus.PROCESSING
 
-    return CalibrationFinalizeResponse(
-        session_id=session_id,
-        status=CalibrationStatus.PROCESSING,
-        centroid_stored=False,
-        num_sequences=len(session["sequences"]),
-        message="Calibration processing started. This may take a few minutes.",
-    )
+    # ── Get the model from app state ─────────────────────────────
+    from fastapi import Request
+    from starlette.requests import HTTPConnection
+
+    # Access app state via the router — we import the model at call time
+    # because the app isn't available at module load
+    try:
+        from app.main import app
+        model = app.state.model
+    except Exception:
+        model = None
+
+    if model is None:
+        logger.warning("No model loaded — storing sequences but cannot compute centroid")
+        return CalibrationFinalizeResponse(
+            session_id=session_id,
+            status=CalibrationStatus.FAILED,
+            centroid_stored=False,
+            num_sequences=len(session["sequences"]),
+            message="Model not loaded. Cannot compute embeddings for calibration.",
+        )
+
+    # ── Convert stored sequences to numpy arrays ─────────────────
+    raw_sequences: list[np.ndarray] = []
+    for seq in session["sequences"]:
+        if seq["landmarks"]:
+            # Convert FrameData list to numpy array
+            frames = []
+            for frame in seq["landmarks"]:
+                frame_lms = []
+                for lm in frame.landmarks:
+                    frame_lms.append([lm.x, lm.y, lm.z, lm.visibility])
+                frames.append(frame_lms)
+            raw_sequences.append(np.array(frames, dtype=np.float32))
+
+    if len(raw_sequences) < 3:
+        return CalibrationFinalizeResponse(
+            session_id=session_id,
+            status=CalibrationStatus.FAILED,
+            centroid_stored=False,
+            num_sequences=len(raw_sequences),
+            message=f"Only {len(raw_sequences)} valid landmark sequences found.",
+        )
+
+    # ── Fine-tune projection head on user's sequences ────────────
+    try:
+        from app.ml.training import finetune, compute_centroid
+
+        finetune(
+            model=model,
+            sequences=raw_sequences,
+            lr=settings.finetune_lr,
+            epochs=settings.finetune_epochs,
+        )
+
+        # ── Compute and store centroid ────────────────────────────
+        centroid = compute_centroid(model, raw_sequences)
+
+        from app.api.ws_live import store_centroid
+        store_centroid(
+            user_id=session["user_id"],
+            exercise=session["exercise_name"],
+            centroid=centroid,
+            threshold=settings.deviation_threshold,
+        )
+
+        session["status"] = CalibrationStatus.COMPLETE
+
+        return CalibrationFinalizeResponse(
+            session_id=session_id,
+            status=CalibrationStatus.COMPLETE,
+            centroid_stored=True,
+            num_sequences=len(raw_sequences),
+            message=f"Calibration complete. Personal baseline stored for '{session['exercise_name']}'.",
+        )
+
+    except Exception as e:
+        logger.error(f"Calibration pipeline failed: {e}", exc_info=True)
+        session["status"] = CalibrationStatus.FAILED
+
+        return CalibrationFinalizeResponse(
+            session_id=session_id,
+            status=CalibrationStatus.FAILED,
+            centroid_stored=False,
+            num_sequences=len(raw_sequences),
+            message=f"Calibration failed: {str(e)}",
+        )

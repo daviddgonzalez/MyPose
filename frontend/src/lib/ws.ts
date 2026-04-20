@@ -110,9 +110,9 @@ export class PKEWebSocket {
   /**
    * Send the configuration payload to the server.
    */
-  sendConfig(strictness: string, exercise: string): void {
+  sendConfig(strictness: string, exercise: string, userId?: string): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-    this.ws.send(JSON.stringify({ type: "config", strictness, exercise }));
+    this.ws.send(JSON.stringify({ type: "config", strictness, exercise, user_id: userId }));
   }
 
   /**

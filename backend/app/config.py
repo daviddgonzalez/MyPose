@@ -30,7 +30,25 @@ class Settings(BaseSettings):
     embedding_dim: int = 256
     deviation_threshold: float = 0.15
     checkpoint_dir: str = "checkpoints"
+    checkpoint_file: str = "pke_pretrained.pt"
     default_strictness: str = "moderate"
+
+    # ─── ST-GCN / Siamese ──────────────────────────────
+    stgcn_channels: str = "64,128,256"  # Comma-separated block channels
+    projection_hidden_dim: int = 512
+    finetune_lr: float = 1e-4
+    finetune_epochs: int = 10
+
+    @property
+    def stgcn_block_channels(self) -> list[int]:
+        """Parse the comma-separated channel config into a list."""
+        return [int(c.strip()) for c in self.stgcn_channels.split(",")]
+
+    @property
+    def checkpoint_path(self) -> str:
+        """Full path to the model checkpoint file."""
+        import os
+        return os.path.join(self.checkpoint_dir, self.checkpoint_file)
 
     # ─── Server ─────────────────────────────────────────
     api_host: str = "0.0.0.0"
