@@ -6,9 +6,6 @@
 
 BASIC BASIC Overview:
 
-Hey Vsauce, David here
-Essentially it's 5 steps:
-
 1. Input - either video input for the minimum viable product (MVP) OR streamed via computer vision through a websocket connection (Think livestreaming)
 
 2. Extraction - Blazepose - create the "skeleton" that represents the person, 33 joints go into a 33 node graph with bones as edges. Takes care of blurry frames, parts of body out of screen, etc.
