@@ -147,23 +147,30 @@ export default function WebcamCapture({
     };
   }, [processFrame]);
 
+  // Clear skeleton when not active
+  useEffect(() => {
+    if (!active) {
+      setCurrentLandmarks(null);
+    }
+  }, [active]);
+
   return (
-    <div className="space-y-3">
-      {/* Status Bar */}
-      <div className="flex items-center gap-4 text-xs">
-        <div className="flex items-center gap-1.5">
+    <div className="relative h-full">
+      {/* Status Bar — overlaid at top-left */}
+      <div className="absolute top-2 left-2 z-20 flex items-center gap-3 text-[10px] bg-black/50 px-2 py-1 rounded">
+        <div className="flex items-center gap-1">
           <span
-            className={`w-2 h-2 rounded-full ${
+            className={`w-1.5 h-1.5 rounded-full ${
               cameraReady ? "bg-[var(--pke-success)]" : "bg-[var(--pke-text-muted)]"
             }`}
           />
-          <span className="text-[var(--pke-text-secondary)]">
+          <span className="text-white/80">
             {cameraReady ? "Camera Active" : "Connecting…"}
           </span>
         </div>
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1">
           <span
-            className={`w-2 h-2 rounded-full ${
+            className={`w-1.5 h-1.5 rounded-full ${
               isReady
                 ? "bg-[var(--pke-success)]"
                 : isLoading
@@ -171,7 +178,7 @@ export default function WebcamCapture({
                 : "bg-[var(--pke-text-muted)]"
             }`}
           />
-          <span className="text-[var(--pke-text-secondary)]">
+          <span className="text-white/80">
             {isReady
               ? "MediaPipe Ready"
               : isLoading
@@ -181,9 +188,10 @@ export default function WebcamCapture({
         </div>
       </div>
 
+      {/* Device selector — overlaid at top-right */}
       {devices.length > 1 && (
         <select 
-          className="w-full text-sm p-2 rounded-lg bg-[var(--pke-bg-card)] border border-[var(--pke-border)] text-[var(--pke-text-primary)]"
+          className="absolute top-2 right-2 z-20 text-[10px] px-2 py-1 bg-black/50 border border-white/20 text-white rounded"
           value={selectedDeviceId}
           onChange={(e) => setSelectedDeviceId(e.target.value)}
         >
@@ -195,11 +203,8 @@ export default function WebcamCapture({
         </select>
       )}
 
-      {/* Video Container */}
-      <div
-        className="relative rounded-xl overflow-hidden border border-[var(--pke-border)] bg-black"
-        style={{ width, height }}
-      >
+      {/* Video Container — fills full height */}
+      <div className="relative overflow-hidden border border-[#e2e8f0] bg-black h-full">
         <video
           ref={videoRef}
           className="w-full h-full object-cover -scale-x-100"
@@ -217,7 +222,7 @@ export default function WebcamCapture({
         {(!cameraReady || isLoading) && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/70 gap-3">
             <div className="w-8 h-8 border-2 border-[var(--pke-accent)] border-t-transparent rounded-full animate-spin" />
-            <p className="text-sm text-[var(--pke-text-secondary)]">
+            <p className="text-sm text-white/60">
               {!cameraReady
                 ? "Starting camera…"
                 : "Loading MediaPipe model…"}
@@ -228,7 +233,7 @@ export default function WebcamCapture({
 
       {/* Error */}
       {(cameraError || mpError) && (
-        <div className="p-3 rounded-lg bg-[rgba(239,68,68,0.1)] border border-[var(--pke-danger)] text-sm text-[var(--pke-danger)]">
+        <div className="absolute bottom-2 left-2 right-2 z-20 p-2 bg-[rgba(239,68,68,0.9)] text-[10px] text-white">
           {cameraError || mpError}
         </div>
       )}

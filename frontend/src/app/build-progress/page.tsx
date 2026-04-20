@@ -1,34 +1,43 @@
 export default function BuildProgress() {
   const steps = [
-    { label: "Docker + Backend + Supabase", done: true },
-    { label: "Extraction + Normalization", done: true },
-    { label: "C++ Module (DTW + Joint Angles)", done: true },
-    { label: "ST-GCN Architecture", done: false, inProgress: true },
-    { label: "Calibration + Evaluation Services", done: false },
-    { label: "Frontend (React/TypeScript)", done: false, inProgress: true },
-    { label: "Live Pipeline (WebSocket)", done: false },
-    { label: "Pre-training (Fit3D)", done: false },
+    "Docker + Backend + Supabase",
+    "Extraction + Normalization",
+    "C++ Module (DTW + Joint Angles)",
+    "ST-GCN Architecture",
+    "Calibration + Evaluation Services",
+    "Frontend (React/TypeScript)",
+    "Live Pipeline (WebSocket)",
+    "Pre-training (Fit3D)",
   ];
 
   return (
     <div className="px-6 lg:px-12 py-16 max-w-4xl mx-auto w-full animate-fade-in">
-      <h1 className="text-4xl font-extrabold text-[#0f172a] mb-10 tracking-tight uppercase">Build Progress</h1>
-      <div className="bg-white p-10 relative border border-[#e2e8f0]">
+      <h1 className="text-4xl font-extrabold text-[var(--pke-text-primary)] mb-3 tracking-tight uppercase">
+        Build Progress
+      </h1>
+      <p className="text-sm text-[var(--pke-text-secondary)] mb-10">
+        Tracking the development milestones of the MyPose pipeline.
+      </p>
+
+      <div className="bg-[var(--pke-bg-card)] p-10 relative border border-[var(--pke-border)] rounded-2xl shadow-[var(--pke-shadow-md)]">
+        {/* Gradient top accent */}
+        <div className="absolute top-0 left-0 right-0 h-1 rounded-t-2xl bg-gradient-to-r from-[#ff6154] via-[#ff8a65] to-[#7c3aed] opacity-80" />
+
+        {/* Vertical connecting line */}
+        <div className="absolute left-[54px] top-[80px] bottom-[40px] w-[2px] bg-[var(--pke-success)]" />
+
         <div className="space-y-8 relative z-10">
-          {steps.map((item, i) => (
-            <div key={i} className="flex items-start gap-5">
-              <span className={`w-10 h-10 border-[2px] flex items-center justify-center text-sm font-bold shrink-0 ${item.done ? 'bg-[#10b981] border-[#10b981] text-white' : item.inProgress ? 'bg-[#0f172a] border-[#0f172a] text-white' : 'bg-transparent border-[#cbd5e1] text-[#94a3b8]'}`}>
-                {item.done ? '✓' : item.inProgress ? '...' : i + 1}
+          {steps.map((label, i) => (
+            <div key={i} className={`flex items-start gap-5 animate-fade-in stagger-${Math.min(i + 1, 7)}`}>
+              <span
+                className="w-10 h-10 border-[2px] flex items-center justify-center text-[10px] font-bold shrink-0 rounded-full bg-[var(--pke-success)] border-[var(--pke-success)] text-white shadow-[0_0_12px_rgba(16,185,129,0.3)]"
+              >
+                {i + 1}
               </span>
               <div className="pt-2">
-                <p className={`text-base font-bold uppercase tracking-wider ${item.done ? 'text-[#94a3b8] line-through decoration-[2px]' : item.inProgress ? 'text-[#0f172a]' : 'text-[#64748b]'}`}>
-                  {item.label}
+                <p className="text-base font-bold uppercase tracking-wider text-[var(--pke-text-muted)] line-through decoration-[2px]">
+                  {label}
                 </p>
-                {item.inProgress && (
-                  <span className="inline-block mt-2 px-3 py-1 bg-[#0f172a] text-white text-[10px] font-bold uppercase tracking-widest">
-                    In Progress
-                  </span>
-                )}
               </div>
             </div>
           ))}

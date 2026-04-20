@@ -156,7 +156,7 @@ export default function CalibrationWizard({
                   : ""
               }`}
             >
-              {i < currentStepIdx ? "" : i + 1}
+              {i < currentStepIdx ? i + 1 : i + 1}
             </div>
             <span
               className={`text-xs font-medium hidden sm:inline ${
@@ -206,7 +206,7 @@ export default function CalibrationWizard({
                     }
                   `}
                 >
-                  <span className="text-2xl">{ex.icon}</span>
+                  <span className="w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold text-white" style={{ background: ex.color }}>{ex.displayName.charAt(0)}</span>
                   <p className="text-sm font-medium text-[var(--pke-text-primary)] mt-2">
                     {ex.displayName}
                   </p>
@@ -222,7 +222,7 @@ export default function CalibrationWizard({
               disabled={!selectedExercise}
               className="pke-btn pke-btn-primary mt-4"
             >
-              Begin Calibration →
+              Begin Calibration
             </button>
           </div>
         )}
@@ -247,7 +247,7 @@ export default function CalibrationWizard({
                     onClick={handleStopRecording}
                     className="pke-btn pke-btn-danger pke-btn-sm"
                   >
-                    ⏹ Stop Recording
+                    Stop Recording
                   </button>
                 ) : (
                   <>
@@ -256,7 +256,7 @@ export default function CalibrationWizard({
                         onClick={handleStartRecording}
                         className="pke-btn pke-btn-primary pke-btn-sm"
                       >
-                        ⏺ Record Sequence {sequences.length + 1}
+                        Record Sequence {sequences.length + 1}
                       </button>
                     )}
                     {sequences.length >= REQUIRED_SEQUENCES && (
@@ -264,7 +264,7 @@ export default function CalibrationWizard({
                         onClick={() => setStep("review")}
                         className="pke-btn pke-btn-secondary pke-btn-sm"
                       >
-                        Review →
+                        Review
                       </button>
                     )}
                   </>
@@ -301,7 +301,7 @@ export default function CalibrationWizard({
                     className="flex items-center justify-between p-3 rounded-lg bg-[var(--pke-bg-surface)] border border-[var(--pke-border)]"
                   >
                     <div className="flex items-center gap-3">
-                      <span className="text-[var(--pke-success)]"></span>
+                      <span className="w-2 h-2 rounded-full bg-[var(--pke-success)]" />
                       <span className="text-sm text-[var(--pke-text-primary)]">
                         Sequence {seq.id}
                       </span>
@@ -357,7 +357,7 @@ export default function CalibrationWizard({
                 onClick={() => setStep("record")}
                 className="pke-btn pke-btn-secondary"
               >
-                ← Back
+                Back
               </button>
               <button
                 onClick={handleFinalize}
@@ -370,7 +370,7 @@ export default function CalibrationWizard({
                     Processing…
                   </>
                 ) : (
-                  "Finalize Calibration "
+                  "Finalize Calibration"
                 )}
               </button>
             </div>
@@ -380,7 +380,7 @@ export default function CalibrationWizard({
         {/* Step 4: Complete */}
         {step === "finalize" && (
           <div className="text-center py-8 space-y-4">
-            <div className="text-5xl"></div>
+            <div className="w-16 h-16 mx-auto rounded-full bg-[var(--pke-success)]/15 flex items-center justify-center text-[var(--pke-success)] text-2xl font-bold">OK</div>
             <h3 className="text-xl font-semibold text-[var(--pke-text-primary)]">
               Calibration Submitted
             </h3>
@@ -393,7 +393,7 @@ export default function CalibrationWizard({
                 Browse Catalog
               </a>
               <a href="/live" className="pke-btn pke-btn-primary">
-                Start Live Session →
+                Start Live Session
               </a>
             </div>
           </div>

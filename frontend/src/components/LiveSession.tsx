@@ -192,40 +192,33 @@ export default function LiveSession({ exerciseName }: LiveSessionProps) {
               isStreaming ? "pke-btn-danger" : "pke-btn-primary"
             }`}
           >
-            {isStreaming ? "⏹ Stop" : "▶ Start Streaming"}
+            {isStreaming ? "Stop" : "Start Streaming"}
           </button>
         </div>
       </div>
 
       {/* Main Content Row: Demo Video & Camera Side by Side */}
-      <div className="flex flex-row gap-6 items-start w-full">
+      <div className="grid grid-cols-2 gap-6 w-full" style={{ height: 480 }}>
         {/* Demo Video (Left) */}
-        <div className="flex-1 min-w-0">
-          <div className="pke-card p-4 h-full flex flex-col items-center justify-center">
-            <h3 className="text-sm font-medium text-[var(--pke-text-primary)] mb-2">
-              Example — Correct Squat Form
-            </h3>
-            <video
-              ref={videoRef}
-              src="/examples/squat.mp4"
-              controls
-              loop
-              muted
-              playsInline
-              className="w-full max-w-md rounded-lg"
-            />
-          </div>
+        <div className="border border-[#e2e8f0] overflow-hidden bg-[#0f172a] h-full">
+          <video
+            ref={videoRef}
+            src="/examples/squat.mp4"
+            controls
+            loop
+            muted
+            playsInline
+            className="w-full h-full object-cover"
+          />
         </div>
         {/* Camera Panel (Right) */}
-        <div className="flex-1 min-w-0 flex justify-center">
-          <div className="shrink-0 flex justify-center bg-white border border-[#e2e8f0] rounded-sm p-1.5 shadow-sm">
-            <WebcamCapture
-              onLandmarks={handleLandmarks}
-              active={isStreaming}
-              width={640}
-              height={480}
-            />
-          </div>
+        <div className="h-full">
+          <WebcamCapture
+            onLandmarks={handleLandmarks}
+            active={isStreaming}
+            width={640}
+            height={480}
+          />
         </div>
       </div>
 
@@ -366,7 +359,7 @@ export default function LiveSession({ exerciseName }: LiveSessionProps) {
                             : "bg-[#ef4444]/10 text-[#ef4444]"
                         }`}
                       >
-                        {sessionFeedback.passed ? "✓ Passed" : "✗ Deviation Detected"}
+                        {sessionFeedback.passed ? "Passed" : "Deviation Detected"}
                       </span>
                       {sessionFeedback.distance_to_centroid != null && (
                         <span className="text-[11px] text-[var(--pke-text-muted)]">
@@ -394,7 +387,7 @@ export default function LiveSession({ exerciseName }: LiveSessionProps) {
                     >
                       <div>
                         <p className="text-xs font-bold flex items-center gap-1">
-                          {!joint.passed && <span className="text-red-500">⚠</span>}
+                          {!joint.passed && <span className="text-red-500 text-[10px] font-black">!</span>}
                           <span className={joint.passed ? "text-[#0f172a]" : "text-[#ef4444]"}>
                             {joint.joint_name}
                           </span>

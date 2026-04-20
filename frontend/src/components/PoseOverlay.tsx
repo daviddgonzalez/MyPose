@@ -49,15 +49,18 @@ export default function PoseOverlay({
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas || !landmarks) return;
+    if (!canvas) return;
 
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
     canvas.width = width;
     canvas.height = height;
-
     ctx.clearRect(0, 0, width, height);
+
+    if (!landmarks) return;
+
+
 
     const errorSet = new Set(errorJoints);
 
