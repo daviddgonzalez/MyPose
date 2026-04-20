@@ -25,6 +25,7 @@ async def websocket_stream(websocket: WebSocket):
     Live landmark streaming endpoint.
 
     Protocol:
+    - Client sends {"type": "config", "strictness": str, "exercise": str} (Optional)
     - Client sends JSON frames: {"type": "frame", "frame_idx": int, "landmarks": [[x,y,z], ...]}
     - Server buffers frames into a sliding window
     - When a rep is detected, server sends back evaluation result
@@ -33,6 +34,8 @@ async def websocket_stream(websocket: WebSocket):
     """
     await websocket.accept()
     frame_buffer: list[dict] = []
+    session_strictness = "moderate"
+    session_exercise = "squat"
 
     try:
         while True:
@@ -41,9 +44,19 @@ async def websocket_stream(websocket: WebSocket):
 
             msg_type = message.get("type", "frame")
 
+            if msg_type == "config":
+                session_strictness = message.get("strictness", "moderate")
+                session_exercise = message.get("exercise", "squat")
+                logger.info(f"Session configured: strictness={session_strictness}, exercise={session_exercise}")
+                continue
+
             if msg_type == "end":
                 # ── Run end-of-session analysis ──────────────────────
-                feedback = analyze_session(frame_buffer)
+                feedback = analyze_session(
+                    frame_buffer,
+                    strictness=session_strictness,
+                    exercise_name=session_exercise
+                )
 
                 # Send the feedback message (rich analysis data)
                 feedback_dict = asdict(feedback)

@@ -15,6 +15,14 @@ from pydantic import BaseModel, Field
 # ─── Enums ──────────────────────────────────────────────────
 
 
+class StrictnessLevel(str, Enum):
+    """Feedback strictness levels."""
+    LENIENT = "lenient"
+    MODERATE = "moderate"
+    STRICT = "strict"
+    DRILL_SERGEANT = "drill_sergeant"
+
+
 class TaskStatus(str, Enum):
     """Status of an async processing task."""
     PENDING = "pending"
@@ -137,6 +145,13 @@ class WSFrameMessage(BaseModel):
     landmarks: list[list[float]]  # [[x, y, z], ...] — 33 entries
 
 
+class WSConfigMessage(BaseModel):
+    """Incoming WebSocket message — session config."""
+    type: str = "config"
+    strictness: StrictnessLevel = StrictnessLevel.MODERATE
+    exercise: str = "squat"
+
+
 class WSResultMessage(BaseModel):
     """Outgoing WebSocket message — evaluation result for a rep."""
     type: str = "result"
@@ -152,11 +167,14 @@ class JointSummarySchema(BaseModel):
     mean_angle_degrees: float
     range_of_motion_degrees: float
     stability_score: float  # 0–1, higher = more consistent
+    passed: bool = True
+    issues: list[str] = []
 
 
 class WSSessionFeedback(BaseModel):
     """Outgoing WebSocket message — full session analysis feedback."""
     type: str = "session_feedback"
+    strictness_level: str
     total_frames: int
     duration_seconds: float
     joint_summaries: list[JointSummarySchema] = []

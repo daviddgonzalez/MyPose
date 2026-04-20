@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import WebcamCapture from "./WebcamCapture";
 import { PKEWebSocket } from "@/lib/ws";
-import type { WSIncomingMessage, WSFeedbackMessage } from "@/lib/types";
+import type { WSIncomingMessage, WSFeedbackMessage, StrictnessLevel } from "@/lib/types";
 
 
 interface LiveSessionProps {
@@ -21,6 +21,7 @@ export default function LiveSession({ exerciseName }: LiveSessionProps) {
   const [isConnected, setIsConnected] = useState(false);
   const [logs, setLogs] = useState<SessionLog[]>([]);
   const [framesStreamed, setFramesStreamed] = useState(0);
+  const [strictness, setStrictness] = useState<StrictnessLevel>("moderate");
   const [sessionFeedback, setSessionFeedback] =
     useState<WSFeedbackMessage | null>(null);
   const wsRef = useRef<PKEWebSocket | null>(null);
@@ -83,6 +84,7 @@ export default function LiveSession({ exerciseName }: LiveSessionProps) {
         setIsStreaming(true);
         setFramesStreamed(0);
         addLog("info", "Connected to stream server");
+        ws.sendConfig(strictness, exerciseName || "squat");
       },
       onMessage: handleMessage,
       onError: () => addLog("error", "WebSocket connection error"),
@@ -145,6 +147,31 @@ export default function LiveSession({ exerciseName }: LiveSessionProps) {
           <p className="text-sm text-[var(--pke-text-secondary)] mt-0.5">
             Stream your movements in real-time for instant feedback
           </p>
+
+          {/* Strictness Selector */}
+          <div className="mt-3 flex items-center bg-[#f8fafc] border border-[#e2e8f0] rounded-lg p-1 w-fit">
+            {(
+              [
+                { value: "lenient", label: "🟢 Lenient" },
+                { value: "moderate", label: "🔵 Moderate" },
+                { value: "strict", label: "🟠 Strict" },
+                { value: "drill_sergeant", label: "🔴 Drill Sgt" },
+              ] as const
+            ).map((opt) => (
+              <button
+                key={opt.value}
+                onClick={() => setStrictness(opt.value)}
+                disabled={isStreaming}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${
+                  strictness === opt.value
+                    ? "bg-white text-[#0f172a] shadow-sm ring-1 ring-slate-900/5"
+                    : "text-[#64748b] hover:text-[#0f172a]"
+                } ${isStreaming ? "opacity-50 cursor-not-allowed" : ""}`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
         </div>
 
         <div className="flex items-center gap-3">
@@ -280,6 +307,9 @@ export default function LiveSession({ exerciseName }: LiveSessionProps) {
                   Baseline
                 </span>
               )}
+              <span className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest bg-slate-100 text-slate-600 border border-slate-200 ml-2">
+                {sessionFeedback.strictness_level}
+              </span>
             </div>
           </div>
 
@@ -358,16 +388,26 @@ export default function LiveSession({ exerciseName }: LiveSessionProps) {
                   {sessionFeedback.joint_summaries.map((joint) => (
                     <div
                       key={joint.joint_name}
-                      className="flex items-center justify-between px-4 py-2.5 bg-[#f8fafc] border border-[#e2e8f0] rounded-sm"
+                      className={`flex items-center justify-between px-4 py-2.5 bg-[#f8fafc] border rounded-sm ${
+                        joint.passed ? "border-[#e2e8f0]" : "border-[#ef4444]"
+                      }`}
                     >
                       <div>
-                        <p className="text-xs font-bold text-[#0f172a]">
-                          {joint.joint_name}
+                        <p className="text-xs font-bold flex items-center gap-1">
+                          {!joint.passed && <span className="text-red-500">⚠</span>}
+                          <span className={joint.passed ? "text-[#0f172a]" : "text-[#ef4444]"}>
+                            {joint.joint_name}
+                          </span>
                         </p>
                         <p className="text-[11px] text-[#64748b]">
                           Avg {joint.mean_angle_degrees}° • Range{" "}
                           {joint.range_of_motion_degrees}°
                         </p>
+                        {!joint.passed && joint.issues?.length > 0 && (
+                          <p className="text-[10px] text-[#ef4444] mt-0.5">
+                            {joint.issues[0]}
+                          </p>
+                        )}
                       </div>
                       <div className="text-right">
                         <div className="flex items-center gap-1.5">
@@ -376,12 +416,11 @@ export default function LiveSession({ exerciseName }: LiveSessionProps) {
                               className="h-full rounded-full transition-all duration-500"
                               style={{
                                 width: `${joint.stability_score * 100}%`,
-                                backgroundColor:
-                                  joint.stability_score >= 0.7
+                                backgroundColor: joint.passed
+                                  ? joint.stability_score >= 0.7
                                     ? "#10b981"
-                                    : joint.stability_score >= 0.4
-                                    ? "#f59e0b"
-                                    : "#ef4444",
+                                    : "#f59e0b"
+                                  : "#ef4444",
                               }}
                             />
                           </div>

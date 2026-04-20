@@ -19,6 +19,8 @@ export enum CalibrationStatus {
   FAILED = "failed",
 }
 
+export type StrictnessLevel = "lenient" | "moderate" | "strict" | "drill_sergeant";
+
 // ─── Landmark Data ────────────────────────────────────────
 
 export interface Landmark {
@@ -114,6 +116,12 @@ export interface WSAckMessage {
   message: string;
 }
 
+export interface WSConfigMessage {
+  type: "config";
+  strictness: StrictnessLevel;
+  exercise: string;
+}
+
 export interface WSResultMessage {
   type: "result";
   rep_idx: number;
@@ -133,10 +141,13 @@ export interface JointSummary {
   mean_angle_degrees: number;
   range_of_motion_degrees: number;
   stability_score: number; // 0–1, higher = more consistent
+  passed: boolean;
+  issues: string[];
 }
 
 export interface WSFeedbackMessage {
   type: "session_feedback";
+  strictness_level: StrictnessLevel;
   total_frames: number;
   duration_seconds: number;
   joint_summaries: JointSummary[];

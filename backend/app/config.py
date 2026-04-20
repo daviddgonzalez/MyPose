@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     embedding_dim: int = 256
     deviation_threshold: float = 0.15
     checkpoint_dir: str = "checkpoints"
+    default_strictness: str = "moderate"
 
     # ─── Server ─────────────────────────────────────────
     api_host: str = "0.0.0.0"

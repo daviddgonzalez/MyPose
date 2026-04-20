@@ -21,6 +21,8 @@ import numpy as np
 
 from app.services.extraction import extract_landmarks_from_frames
 from app.services.normalization import normalize_landmarks, compute_joint_angles
+from app.services.strictness import get_profile, get_rom_target, StrictnessProfile
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -36,11 +38,14 @@ class JointSummary:
     mean_angle_degrees: float
     range_of_motion_degrees: float
     stability_score: float  # 0–1, higher = more consistent
+    passed: bool = True
+    issues: list[str] = field(default_factory=list)
 
 
 @dataclass
 class SessionFeedback:
     """Complete feedback for a finished session."""
+    strictness_level: str
     total_frames: int
     duration_seconds: float
     joint_summaries: list[JointSummary] = field(default_factory=list)
@@ -73,6 +78,8 @@ _ANGLE_JOINT_NAMES = [
 def analyze_session(
     frame_buffer: list[dict],
     fps: float = 30.0,
+    strictness: str = settings.default_strictness,
+    exercise_name: str = "squat",
     # ML-READY: When calibration is available, pass these in:
     user_centroid: np.ndarray | None = None,
     model: object | None = None,
@@ -99,11 +106,14 @@ def analyze_session(
 
     if total_frames < 5:
         return SessionFeedback(
+            strictness_level=strictness,
             total_frames=total_frames,
             duration_seconds=round(duration, 1),
             overall_score=0.0,
             message="Session too short for meaningful analysis. Try recording at least a few seconds.",
         )
+
+    profile = get_profile(strictness)
 
     try:
         # ── Step 1: Convert raw WS frames → numpy array ──────────────
@@ -121,10 +131,10 @@ def analyze_session(
         # angles shape: (T, N_angles)
 
         # ── Step 4: Compute per-joint statistics ──────────────────────
-        joint_summaries = _compute_joint_summaries(angles)
+        joint_summaries = _compute_joint_summaries(angles, profile, exercise_name)
 
         # ── Step 5: Compute overall score ─────────────────────────────
-        overall_score = _compute_overall_score(joint_summaries)
+        overall_score = _compute_overall_score(joint_summaries, profile, exercise_name)
 
         # ML-READY: When calibration is available, run the full pipeline here:
         # if user_centroid is not None and model is not None:
@@ -140,6 +150,7 @@ def analyze_session(
         message = _generate_feedback_message(overall_score, joint_summaries, duration)
 
         return SessionFeedback(
+            strictness_level=profile.level.value,
             total_frames=total_frames,
             duration_seconds=round(duration, 1),
             joint_summaries=joint_summaries,
@@ -151,6 +162,7 @@ def analyze_session(
     except Exception as e:
         logger.error(f"Session analysis failed: {e}", exc_info=True)
         return SessionFeedback(
+            strictness_level=strictness,
             total_frames=total_frames,
             duration_seconds=round(duration, 1),
             overall_score=0.0,
@@ -158,7 +170,7 @@ def analyze_session(
         )
 
 
-def _compute_joint_summaries(angles: np.ndarray) -> list[JointSummary]:
+def _compute_joint_summaries(angles: np.ndarray, profile: StrictnessProfile, exercise: str) -> list[JointSummary]:
     """Compute per-joint statistics from angle time series."""
     summaries = []
 
@@ -173,41 +185,71 @@ def _compute_joint_summaries(angles: np.ndarray) -> list[JointSummary]:
         std_dev = float(np.std(joint_angles))
 
         # Stability: inverse of normalized std deviation.
-        # A perfectly still joint → stability = 1.0
-        # A wildly varying joint → stability → 0.0
-        # Normalize by dividing std by the range (if any); cap at 1.0
         if angle_range > 1e-3:
             stability = max(0.0, min(1.0, 1.0 - (std_dev / (angle_range + 1e-6))))
         else:
             stability = 1.0  # No movement → perfectly stable
+
+        # Evaluate Pass/Fail
+        passed = True
+        issues = []
+        
+        if stability < profile.min_stability_threshold:
+            passed = False
+            issues.append(f"Inconsistent stability (score: {stability:.2f})")
+            
+        target_rom = get_rom_target(exercise, name, profile)
+        if target_rom > 0 and angle_range < target_rom:
+            passed = False
+            issues.append(f"Insufficient ROM ({angle_range:.0f}° / target {target_rom:.0f}°)")
 
         summaries.append(JointSummary(
             joint_name=name,
             mean_angle_degrees=round(mean_angle, 1),
             range_of_motion_degrees=round(angle_range, 1),
             stability_score=round(stability, 3),
+            passed=passed,
+            issues=issues
         ))
 
     return summaries
 
 
-def _compute_overall_score(summaries: list[JointSummary]) -> float:
+def _compute_overall_score(summaries: list[JointSummary], profile: StrictnessProfile, exercise: str) -> float:
     """
-    Compute an overall movement quality score (0–100).
-
-    MVP heuristic based on stability scores across all joints.
-    ML-READY: Replace with calibration-based pass/fail distance.
+    Compute an overall movement quality score (0–100) combining stability and ROM.
     """
     if not summaries:
         return 0.0
 
-    avg_stability = np.mean([s.stability_score for s in summaries])
+    # 1. Stability Component
+    stabilities = [s.stability_score for s in summaries]
+    # Penalize low stabilities harder
+    penalized = [s ** profile.penalty_curve_exponent for s in stabilities]
+    stability_component = float(np.mean(penalized))
 
-    # Scale stability (0–1) to a 0–100 score with a slight curve
-    # to make typical movements score in a useful range
-    score = avg_stability * 100.0
+    # 2. ROM Component
+    rom_passes = []
+    for s in summaries:
+        target = get_rom_target(exercise, s.joint_name, profile)
+        if target > 0:
+            ratio = s.range_of_motion_degrees / target
+            rom_passes.append(min(1.0, ratio))
+        else:
+            # Does not apply or isometric
+            rom_passes.append(1.0)
+            
+    rom_component = float(np.mean(rom_passes)) if rom_passes else 1.0
 
-    return float(np.clip(score, 0.0, 100.0))
+    # 3. Blended base score
+    base_score = (profile.stability_weight * stability_component + 
+                  profile.rom_weight * rom_component) * 100.0
+
+    # 4. Final penalty for any joint that failed
+    failed_count = sum(1 for s in summaries if not s.passed)
+    penalty = failed_count * 5.0
+
+    return float(np.clip(base_score - penalty, 0.0, 100.0))
 
 
 def _generate_feedback_message(
