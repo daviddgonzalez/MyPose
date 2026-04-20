@@ -144,3 +144,26 @@ class WSResultMessage(BaseModel):
     passed: bool
     distance: float
     joint_errors: list[JointError] = []
+
+
+class JointSummarySchema(BaseModel):
+    """Per-joint analysis summary from session feedback."""
+    joint_name: str
+    mean_angle_degrees: float
+    range_of_motion_degrees: float
+    stability_score: float  # 0–1, higher = more consistent
+
+
+class WSSessionFeedback(BaseModel):
+    """Outgoing WebSocket message — full session analysis feedback."""
+    type: str = "session_feedback"
+    total_frames: int
+    duration_seconds: float
+    joint_summaries: list[JointSummarySchema] = []
+    overall_score: float = 0.0  # 0–100
+    message: str = ""
+
+    # ML-READY: Present when calibration pipeline is active
+    passed: Optional[bool] = None
+    distance_to_centroid: Optional[float] = None
+    calibration_available: bool = False

@@ -128,10 +128,31 @@ export interface WSSessionEndMessage {
   message: string;
 }
 
+export interface JointSummary {
+  joint_name: string;
+  mean_angle_degrees: number;
+  range_of_motion_degrees: number;
+  stability_score: number; // 0–1, higher = more consistent
+}
+
+export interface WSFeedbackMessage {
+  type: "session_feedback";
+  total_frames: number;
+  duration_seconds: number;
+  joint_summaries: JointSummary[];
+  overall_score: number; // 0–100
+  message: string;
+  // ML-READY: Present when calibration pipeline is active
+  passed?: boolean | null;
+  distance_to_centroid?: number | null;
+  calibration_available: boolean;
+}
+
 export type WSIncomingMessage =
   | WSAckMessage
   | WSResultMessage
-  | WSSessionEndMessage;
+  | WSSessionEndMessage
+  | WSFeedbackMessage;
 
 // ─── Exercise Catalog ─────────────────────────────────────
 

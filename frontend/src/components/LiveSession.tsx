@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import WebcamCapture from "./WebcamCapture";
 import { PKEWebSocket } from "@/lib/ws";
-import type { WSIncomingMessage } from "@/lib/types";
+import type { WSIncomingMessage, WSFeedbackMessage } from "@/lib/types";
 
 interface LiveSessionProps {
   exerciseName?: string;
@@ -11,7 +11,7 @@ interface LiveSessionProps {
 
 interface SessionLog {
   time: string;
-  type: "ack" | "result" | "info" | "error";
+  type: "ack" | "result" | "info" | "error" | "feedback";
   message: string;
 }
 
@@ -20,6 +20,8 @@ export default function LiveSession({ exerciseName }: LiveSessionProps) {
   const [isConnected, setIsConnected] = useState(false);
   const [logs, setLogs] = useState<SessionLog[]>([]);
   const [framesStreamed, setFramesStreamed] = useState(0);
+  const [sessionFeedback, setSessionFeedback] =
+    useState<WSFeedbackMessage | null>(null);
   const wsRef = useRef<PKEWebSocket | null>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
 
@@ -47,6 +49,13 @@ export default function LiveSession({ exerciseName }: LiveSessionProps) {
             `Rep ${message.rep_idx}: ${message.passed ? " Good form" : " Form deviation"} (distance: ${message.distance.toFixed(3)})`
           );
           break;
+        case "session_feedback":
+          setSessionFeedback(message);
+          addLog(
+            "feedback",
+            `Analysis complete — Score: ${message.overall_score}/100 | ${message.message}`
+          );
+          break;
         case "session_end":
           addLog("info", `Session ended. Total frames: ${message.total_frames}`);
           setIsStreaming(false);
@@ -57,6 +66,7 @@ export default function LiveSession({ exerciseName }: LiveSessionProps) {
   );
 
   const startSession = useCallback(() => {
+    setSessionFeedback(null); // Clear previous feedback
     const ws = new PKEWebSocket({
       onOpen: () => {
         setIsConnected(true);
@@ -78,15 +88,16 @@ export default function LiveSession({ exerciseName }: LiveSessionProps) {
 
   const stopSession = useCallback(() => {
     if (wsRef.current) {
+      addLog("info", "Ending session — analyzing movement…");
       wsRef.current.endSession();
       setTimeout(() => {
         wsRef.current?.disconnect();
         wsRef.current = null;
         setIsStreaming(false);
         setIsConnected(false);
-      }, 500);
+      }, 3000); // Give backend time to analyze and respond
     }
-  }, []);
+  }, [addLog]);
 
   const handleLandmarks = useCallback(
     (landmarks: { x: number; y: number; z: number }[]) => {
@@ -215,6 +226,8 @@ export default function LiveSession({ exerciseName }: LiveSessionProps) {
                         ? "text-[var(--pke-success)]"
                         : log.type === "ack"
                         ? "text-[var(--pke-accent)]"
+                        : log.type === "feedback"
+                        ? "text-[#6366f1] font-semibold"
                         : "text-[var(--pke-text-secondary)]"
                     }
                   >
@@ -227,6 +240,148 @@ export default function LiveSession({ exerciseName }: LiveSessionProps) {
           </div>
         </div>
       </div>
+
+      {/* ── Session Feedback Card ────────────────────────────────── */}
+      {sessionFeedback && (
+        <div className="border border-[#e2e8f0] bg-white shadow-sm animate-fade-in">
+          {/* Feedback Header */}
+          <div className="px-6 py-4 border-b border-[#e2e8f0] flex items-center justify-between">
+            <h3 className="text-sm font-bold uppercase tracking-widest text-[#0f172a]">
+              Session Feedback
+            </h3>
+            <div className="flex items-center gap-3">
+              <span className="text-[11px] text-[var(--pke-text-muted)]">
+                {sessionFeedback.total_frames} frames •{" "}
+                {sessionFeedback.duration_seconds}s
+              </span>
+              {/* ML-READY: Show calibration badge when available */}
+              {sessionFeedback.calibration_available ? (
+                <span className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest bg-[#6366f1]/10 text-[#6366f1]">
+                  Calibrated
+                </span>
+              ) : (
+                <span className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest bg-[#f59e0b]/10 text-[#f59e0b]">
+                  Baseline
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Score + Summary */}
+          <div className="px-6 py-5">
+            <div className="flex items-center gap-6 mb-5">
+              {/* Score Circle */}
+              <div className="relative w-20 h-20 shrink-0">
+                <svg className="w-full h-full -rotate-90" viewBox="0 0 36 36">
+                  <path
+                    d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                    fill="none"
+                    stroke="#e2e8f0"
+                    strokeWidth="3"
+                  />
+                  <path
+                    d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                    fill="none"
+                    stroke={
+                      sessionFeedback.overall_score >= 80
+                        ? "#10b981"
+                        : sessionFeedback.overall_score >= 60
+                        ? "#6366f1"
+                        : sessionFeedback.overall_score >= 40
+                        ? "#f59e0b"
+                        : "#ef4444"
+                    }
+                    strokeWidth="3"
+                    strokeDasharray={`${sessionFeedback.overall_score}, 100`}
+                    strokeLinecap="round"
+                  />
+                </svg>
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <span className="text-lg font-extrabold text-[#0f172a]">
+                    {Math.round(sessionFeedback.overall_score)}
+                  </span>
+                </div>
+              </div>
+
+              <div className="min-w-0">
+                <p className="text-sm text-[#475569] leading-relaxed">
+                  {sessionFeedback.message}
+                </p>
+
+                {/* ML-READY: Show pass/fail when calibration is available */}
+                {sessionFeedback.calibration_available &&
+                  sessionFeedback.passed !== null &&
+                  sessionFeedback.passed !== undefined && (
+                    <div className="mt-2 flex items-center gap-2">
+                      <span
+                        className={`px-3 py-1 text-[10px] font-bold uppercase tracking-widest ${
+                          sessionFeedback.passed
+                            ? "bg-[#10b981]/10 text-[#10b981]"
+                            : "bg-[#ef4444]/10 text-[#ef4444]"
+                        }`}
+                      >
+                        {sessionFeedback.passed ? "✓ Passed" : "✗ Deviation Detected"}
+                      </span>
+                      {sessionFeedback.distance_to_centroid != null && (
+                        <span className="text-[11px] text-[var(--pke-text-muted)]">
+                          Distance: {sessionFeedback.distance_to_centroid.toFixed(4)}
+                        </span>
+                      )}
+                    </div>
+                  )}
+              </div>
+            </div>
+
+            {/* Joint Breakdown */}
+            {sessionFeedback.joint_summaries.length > 0 && (
+              <div>
+                <h4 className="text-[10px] font-extrabold text-[#94a3b8] uppercase tracking-widest mb-3">
+                  Joint Breakdown
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {sessionFeedback.joint_summaries.map((joint) => (
+                    <div
+                      key={joint.joint_name}
+                      className="flex items-center justify-between px-4 py-2.5 bg-[#f8fafc] border border-[#e2e8f0] rounded-sm"
+                    >
+                      <div>
+                        <p className="text-xs font-bold text-[#0f172a]">
+                          {joint.joint_name}
+                        </p>
+                        <p className="text-[11px] text-[#64748b]">
+                          Avg {joint.mean_angle_degrees}° • Range{" "}
+                          {joint.range_of_motion_degrees}°
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <div className="flex items-center gap-1.5">
+                          <div className="w-12 h-1.5 bg-[#e2e8f0] rounded-full overflow-hidden">
+                            <div
+                              className="h-full rounded-full transition-all duration-500"
+                              style={{
+                                width: `${joint.stability_score * 100}%`,
+                                backgroundColor:
+                                  joint.stability_score >= 0.7
+                                    ? "#10b981"
+                                    : joint.stability_score >= 0.4
+                                    ? "#f59e0b"
+                                    : "#ef4444",
+                              }}
+                            />
+                          </div>
+                          <span className="text-[10px] font-bold text-[#94a3b8] w-8 text-right">
+                            {Math.round(joint.stability_score * 100)}%
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
