@@ -25,7 +25,7 @@ export default function Navbar() {
           <span className="gradient-text">My</span>
           <span className="text-[var(--pke-text-primary)]">Pose</span>
         </span>
-        <span className="ml-2 w-2 h-2 rounded-full bg-[var(--pke-accent)] opacity-80 group-hover:opacity-100 group-hover:scale-125 transition-all" />
+
       </Link>
 
       <nav className="hidden md:flex items-center gap-1 text-sm font-semibold">
