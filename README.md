@@ -8,7 +8,7 @@ BASIC BASIC Overview:
 
 1. Input - either video input for the minimum viable product (MVP) OR streamed via computer vision through a websocket connection (Think livestreaming)
 
-2. Extraction - Blazepose - create the "skeleton" that represents the person, 33 joints go into a 33 node graph with bones as edges. Takes care of blurry frames, parts of body out of screen, etc.
+2. Extraction - OpenPose - create the "skeleton" that represents the person, 25 joints go into a 25 node graph with bones as edges. Takes care of blurry frames, parts of body out of screen, etc.
 
 3. Euclidean Normalization - center is hips, essentially make it so its the same whether you're 5 feet away or 2 feet away. Also if you're 6 feet or 4 feet. Temporal Resampling - essentially if the original clip is 30 seconds and you send in a 4 minute version, it speeds it up to 30 seconds. If you send in a super fast 15 second clip, it slows it down to 30 seconds. This is so it can compare 30 seconds of dance/exercise to 30 seconds.
 
