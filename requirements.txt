@@ -1,1 +1,18 @@
--r backend/requirements.txt
+# Root requirements used by Railway Railpack.
+# Railpack installs this file before copying the full repo, so this
+# cannot reference backend/requirements.txt.
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.9
+websockets>=12.0
+pydantic-settings>=2.2.0
+supabase>=2.3.0
+opencv-python-headless>=4.9.0
+mediapipe>=0.10.9
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch>=2.2.0
+numpy>=1.26.0
+scipy>=1.12.0
+dtw-python>=1.3.0
+pytest>=8.0.0
+httpx>=0.27.0
