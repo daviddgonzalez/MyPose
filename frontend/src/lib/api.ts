@@ -21,6 +21,27 @@ import type {
 const BASE_URL =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+function buildApiErrorMessage(path: string, status: number, body: string): string {
+  const normalized = body.trim();
+
+  // Handle HTML error pages (commonly from wrong base URL hitting frontend app).
+  if (normalized.startsWith("<!DOCTYPE html") || normalized.startsWith("<html")) {
+    return `API ${status}: Backend endpoint not found for ${path}. Check NEXT_PUBLIC_API_URL and ensure backend /api routes are running.`;
+  }
+
+  // Handle JSON-style FastAPI errors.
+  try {
+    const parsed = JSON.parse(normalized) as { detail?: string };
+    if (parsed?.detail) {
+      return `API ${status}: ${parsed.detail}`;
+    }
+  } catch {
+    // Fall back to raw text below.
+  }
+
+  return `API ${status}: ${normalized}`;
+}
+
 async function request<T>(
   path: string,
   options?: RequestInit
@@ -33,7 +54,7 @@ async function request<T>(
 
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`API ${res.status}: ${body}`);
+    throw new Error(buildApiErrorMessage(path, res.status, body));
   }
 
   return res.json() as Promise<T>;

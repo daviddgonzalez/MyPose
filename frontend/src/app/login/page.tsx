@@ -22,7 +22,17 @@ export default function LoginPage() {
       saveStoredUser({ userId: res.user_id, username: res.username });
       setStatusMsg(mode === "register" ? "Account created and logged in." : "Logged in.");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Authentication failed.");
+      const fallback = mode === "login"
+        ? "Login failed. Check your username and password."
+        : "Registration failed. Try a different username.";
+      const message = err instanceof Error ? err.message : fallback;
+
+      // Show a cleaner auth message for expected invalid credential cases.
+      if (mode === "login" && message.includes("Invalid username or password")) {
+        setError("No account found with that username, or password is incorrect.");
+      } else {
+        setError(message);
+      }
     } finally {
       setLoading(false);
     }

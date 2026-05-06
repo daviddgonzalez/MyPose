@@ -115,6 +115,16 @@ To support both live tracking and a fallback MVP, the pipeline standardizes arou
 
 - Add a per-user progress check-in system to track rep quality trends and total repetition counts over time.
 - Keep this as a deferred feature until core calibration/evaluation persistence is fully wired to Supabase.
+- New-user default behavior: if a user has no personalization history, evaluate against the base model only.
+- Add a **Personalize** button so users can opt into transfer learning, especially for mobility limitations where base-model expectations are not a good fit.
+
+### Personalize UX flow (deferred)
+
+1. **First-time user**: show "Using Base Model" status and a visible **Personalize** CTA on the workout/progress screen.
+2. **CTA click**: open a short explanation modal ("Personalize adapts scoring to your mobility and form baseline") with confirm/cancel actions.
+3. **If confirmed**: launch calibration capture (3-5 good reps) and run transfer-learning finalize.
+4. **On success**: switch status to "Personalized Model Active", record `personalized_at`, and use personalized embeddings for evaluation.
+5. **After activation**: keep a secondary option to "Re-personalize" so users can refresh their baseline after recovery/progress changes.
 
 ## Next Chat Handoff (tomorrow)
 
