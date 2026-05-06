@@ -79,15 +79,77 @@ To support both live tracking and a fallback MVP, the pipeline standardizes arou
 - [x] **Phase 1** — Docker + Backend Scaffold + Supabase Schema
 - [x] **Phase 2** — Extraction + Normalization Pipeline
 - [x] **Phase 3** — C++ Module (DTW + Joint Angles via pybind11)
-- [ ] **Phase 4** — ST-GCN Architecture (in progress)
-- [ ] **Phase 5** — Calibration + Evaluation Services
-- [ ] **Phase 6** — Frontend (React/TypeScript)
-- [ ] **Phase 7** — Live Pipeline (WebSocket real-time inference)
-- [ ] **Phase 8** — Pre-training (Fit3D dataset)
+- [x] **Phase 4** — ST-GCN Architecture — `backend/app/ml/` (`stgcn.py`, `siamese.py`, `model.py`, checkpoints)
+- [ ] **Phase 5** — Calibration + Evaluation Services — *partial*: calibration finalize + centroid + ML branch in WebSocket analysis; **`POST /api/v1/evaluate` remains a placeholder**; DTW fallback not wired into live/REST evaluation
+- [x] **Phase 6** — Frontend (Next.js/React + TypeScript, MediaPipe, upload + live UX)
+- [x] **Phase 7** — Live Pipeline — WebSocket `ws/v1/stream` buffers frames → `analyze_session` (heuristics always; embeddings when centroid + checkpoint exist)
+- [ ] **Phase 8** — Pre-training (Fit3D) — *partial*: `pretrain` CLI + `Fit3DContrastiveDataset` implemented; **`data/fit3d/` not in repo**; Fit3D→MediaPipe `.npy` preprocessing is out-of-band (documented in `dataset.py`)
+
+## ML Pipeline Status
+
+*Living assessment (six-stage lifecycle vs code). Evidence paths are from repo root.*
+
+### Maturity matrix
+
+| Stage | Status | Evidence |
+|--------|--------|----------|
+| **1. Data & labels** | **Partial** | Loader + expected layout in [`backend/app/ml/dataset.py`](backend/app/ml/dataset.py); no sample `data/fit3d/` tree in repo; calibration uses user landmarks via API |
+| **2. Training** | **Partial** | [`backend/app/ml/training.py`](backend/app/ml/training.py) (`pretrain`, `finetune`, `compute_centroid`); no fixed validation split/metrics/logging in training loop; checkpoint filename from [`backend/app/config.py`](backend/app/config.py) |
+| **3. Evaluation offline** | **Not started** | No held-out suite for embedding quality/threshold tuning; pytest has no PKEModel/training/import tests (`backend/tests/`) |
+| **4. Serving & integration** | **Partial** | [`backend/app/main.py`](backend/app/main.py) loads `PKEModel` if checkpoint exists; [`backend/app/services/analysis.py`](backend/app/services/analysis.py) calls `model.embed(normalized)` when centroid present; `(B,3,T,33)` contract in [`backend/app/ml/model.py`](backend/app/ml/model.py) |
+| **5. Production persistence** | **Partial** | pgvector-oriented schema [`supabase/migrations/001_initial_schema.sql`](supabase/migrations/001_initial_schema.sql); runtime uses in-memory `_sessions` and `_centroid_store` in calibration + [`backend/app/api/ws_live.py`](backend/app/api/ws_live.py) |
+| **6. Ops & quality** | **Minimal** | No `.github/workflows` in repo; DTW exercised only via C++ bindings in [`backend/tests/test_cpp_module.py`](backend/tests/test_cpp_module.py); not invoked from REST/live evaluation |
+
+**Concise posture:** MVP integration uses **heuristics + optional embedding distance on the WebSocket path** after calibration fine-tuning; durable centroids, REST evaluation, and architecture-doc **DTW-on-fail** are still open.
+
+### Prioritized gap backlog
+
+1. **Data pipeline** — Add or document Fit3D→33-joint `.npy` preprocessing; commit or mount `data/fit3d/<exercise>/*.npy` for reproducible pretrain.
+2. **Persistence** — Replace in-memory calibration/centroid stores with Supabase (align [`backend/app/api/routes_calibration.py`](backend/app/api/routes_calibration.py) + `ws_live` with migration tables).
+3. **REST evaluation** — Implement [`backend/app/api/routes_evaluate.py`](backend/app/api/routes_evaluate.py): normalize → embed → compare to stored centroid → optional DTW/joint report (reuse C++ module + joint angles from [`backend/app/services/normalization.py`](backend/app/services/normalization.py)).
+4. **DTW in ML failure path** — Wire DTW + joint-angle comparison when embedding distance exceeds threshold (per architecture overview); today DTW is not called from `analyze_session` or evaluate route.
+5. **Offline eval + tests** — Small fixture sequences + tests for `PKEModel.embed` shape/determinism, finetune no-op/range, and threshold behavior; add CI when ready.
+6. **Training hygiene** — Seeds, validation metrics, and experiment tracking (optional) before scaling Phase 8.
+
+### Future product check-in (not in current scope)
+
+- Add a per-user progress check-in system to track rep quality trends and total repetition counts over time.
+- Keep this as a deferred feature until core calibration/evaluation persistence is fully wired to Supabase.
+
+## Next Chat Handoff (tomorrow)
+
+Use this exact prompt in a new chat:
+
+`Read this README first, then continue from the "Tomorrow checkpoint plan" to run pretraining, produce a checkpoint, verify /health shows model_loaded=true, and test calibration finalize persistence to Supabase.`
+
+### Tomorrow checkpoint plan
+
+1. Confirm Fit3D-formatted data directory exists and matches `backend/app/ml/dataset.py` expected layout.
+2. Run pretrain from `backend/`:
+   - `python -m app.ml.training pretrain --data-dir <fit3d_root> --epochs 1 --device cpu`
+3. Ensure checkpoint exists at `checkpoints/pke_pretrained.pt` (or update config/env to the generated filename).
+4. Restart backend (`python start.py`) and verify:
+   - `GET /health` returns `"model_loaded": true`
+5. Run calibration flow:
+   - `POST /api/v1/calibrate/start`
+   - add >=3 sequences
+   - `POST /api/v1/calibrate/{session_id}/finalize`
+6. Verify Supabase rows updated:
+   - `calibration_sessions`
+   - `calibration_sequences` (with embeddings)
+   - `calibration_centroids`
+
+### Runnable verification
+
+Run from `backend/` with venv active (see Quick Start). Adjust host/port if needed.
+
+1. **Model load** — `GET /health` → `model_loaded: true` only if `checkpoints/<checkpoint_file>` exists ([`backend/app/config.py`](backend/app/config.py)). If missing, backend runs heuristic-only; calibration finalize returns failure without embeddings.
+2. **Pretrain (requires data)** — `python -m app.ml.training pretrain --data-dir <path_to_fit3d_root> --epochs 1 --device cpu` — succeeds only when directory matches layout in `dataset.py` docstring.
+3. **Calibration → live ML** — `POST /api/v1/calibrate/start` → add ≥3 sequences with `landmarks` → `POST .../finalize` (with checkpoint loaded) → open WebSocket `ws/v1/stream`, send `config` with same `user_id` and `exercise` as calibration, stream frames, `end` → `session_feedback` should show `calibration_available: true` and `distance_to_centroid` when centroid was stored.
 
 ## Deferred Architecture Decisions
 
 > Revisit these during Phase 8 (Fit3D pre-training) when we have real training data at scale.
 
-- [ ] **6-layer → 9-layer ST-GCN expansion** — MVP uses 6 layers (~1.2M params, ~30-50ms CPU inference) to keep the param-to-data ratio sane during calibration fine-tuning with only 3-10 reps. `num_layers` is config-driven (`settings.stgcn_num_layers`); bumping to 9 (~2.5M params, ~80-120ms) is a one-line change. 6-layer weights can transfer into the first 6 layers of a 9-layer model. Expand when Fit3D gives enough data to justify the extra capacity.
+- [ ] **ST-GCN depth / width expansion** — Current backbone uses three ST-GCN blocks; channel widths are config-driven via `settings.stgcn_channels` ([`backend/app/config.py`](backend/app/config.py)). Deeper or wider variants are a research item once Fit3D volume justifies capacity and you define how checkpoints transfer.
 - [ ] **Cosine Embedding Loss → NT-Xent** — MVP uses Cosine Embedding Loss (works with explicit pairs, no batch-size dependency, one-line PyTorch). NT-Xent (SimCLR-style) is more powerful but needs large batches for implicit negatives — with 3-10 calibration reps the batch is too small to leverage its advantage, and all batch items are the same exercise so "implicit negatives" are barely negative. Revisit when Fit3D pre-training provides real batch diversity (hundreds+ sequences across exercises).

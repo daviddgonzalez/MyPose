@@ -21,6 +21,14 @@ from app.utils.schemas import (
     CalibrationStatus,
 )
 from app.config import settings
+from app.services.normalization import normalize_landmarks
+from app.db.queries import (
+    create_calibration_session,
+    compute_and_store_centroid,
+    get_exercise_by_name,
+    store_calibration_embedding,
+    update_calibration_session_status,
+)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -38,6 +46,15 @@ async def start_calibration(request: CalibrationStartRequest):
     the session is finalized to compute their personal baseline.
     """
     session_id = str(uuid.uuid4())
+    exercise = await get_exercise_by_name(request.exercise_name)
+    if exercise is None:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Unknown exercise '{request.exercise_name}'. "
+                "Use one of the seeded exercises in the catalog."
+            ),
+        )
 
     _sessions[session_id] = {
         "user_id": request.user_id,
@@ -45,6 +62,15 @@ async def start_calibration(request: CalibrationStartRequest):
         "status": CalibrationStatus.PENDING,
         "sequences": [],
     }
+    try:
+        await create_calibration_session(
+            session_id=session_id,
+            user_id=request.user_id,
+            exercise_id=exercise["id"],
+            status=CalibrationStatus.PENDING.value,
+        )
+    except Exception as e:
+        logger.warning(f"Unable to persist calibration session start: {e}")
 
     return CalibrationStartResponse(
         session_id=session_id,
@@ -116,6 +142,10 @@ async def finalize_calibration(session_id: str):
         )
 
     session["status"] = CalibrationStatus.PROCESSING
+    try:
+        await update_calibration_session_status(session_id, CalibrationStatus.PROCESSING.value)
+    except Exception as e:
+        logger.warning(f"Unable to persist calibration status=processing: {e}")
 
     # ── Get the model from app state ─────────────────────────────
     from fastapi import Request
@@ -183,7 +213,38 @@ async def finalize_calibration(session_id: str):
             threshold=settings.deviation_threshold,
         )
 
+        # Persist sequence embeddings + centroid in Supabase when available.
+        try:
+            exercise = await get_exercise_by_name(session["exercise_name"])
+            if exercise:
+                for seq, raw_seq in zip(session["sequences"], raw_sequences):
+                    normalized = normalize_landmarks(raw_seq)
+                    embedding = model.embed(normalized)[0].tolist()
+                    landmarks_json = None
+                    if seq["landmarks"]:
+                        landmarks_json = [frame.model_dump() for frame in seq["landmarks"]]
+
+                    await store_calibration_embedding(
+                        sequence_id=seq["id"],
+                        session_id=session_id,
+                        embedding=embedding,
+                        landmarks_json=landmarks_json,
+                        storage_path=seq["storage_path"],
+                    )
+
+                await compute_and_store_centroid(
+                    user_id=session["user_id"],
+                    exercise_id=exercise["id"],
+                    session_id=session_id,
+                )
+        except Exception as e:
+            logger.warning(f"Unable to persist calibration embeddings/centroid: {e}")
+
         session["status"] = CalibrationStatus.COMPLETE
+        try:
+            await update_calibration_session_status(session_id, CalibrationStatus.COMPLETE.value)
+        except Exception as e:
+            logger.warning(f"Unable to persist calibration status=complete: {e}")
 
         return CalibrationFinalizeResponse(
             session_id=session_id,
@@ -196,6 +257,10 @@ async def finalize_calibration(session_id: str):
     except Exception as e:
         logger.error(f"Calibration pipeline failed: {e}", exc_info=True)
         session["status"] = CalibrationStatus.FAILED
+        try:
+            await update_calibration_session_status(session_id, CalibrationStatus.FAILED.value)
+        except Exception as db_e:
+            logger.warning(f"Unable to persist calibration status=failed: {db_e}")
 
         return CalibrationFinalizeResponse(
             session_id=session_id,

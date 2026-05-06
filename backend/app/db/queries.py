@@ -12,6 +12,53 @@ from typing import Optional
 from app.db.supabase_client import get_supabase_client
 
 
+async def get_exercise_by_name(name: str) -> Optional[dict]:
+    """Look up an exercise row by canonical name."""
+    client = get_supabase_client()
+    result = (
+        client.table("exercises")
+        .select("id,name")
+        .eq("name", name)
+        .limit(1)
+        .execute()
+    )
+    return result.data[0] if result.data else None
+
+
+async def create_calibration_session(
+    session_id: str,
+    user_id: str,
+    exercise_id: str,
+    status: str = "pending",
+) -> Optional[dict]:
+    """Create a calibration session row."""
+    client = get_supabase_client()
+    result = (
+        client.table("calibration_sessions")
+        .insert(
+            {
+                "id": session_id,
+                "user_id": user_id,
+                "exercise_id": exercise_id,
+                "status": status,
+            }
+        )
+        .execute()
+    )
+    return result.data[0] if result.data else None
+
+
+async def update_calibration_session_status(session_id: str, status: str) -> None:
+    """Update the status of a calibration session."""
+    client = get_supabase_client()
+    (
+        client.table("calibration_sessions")
+        .update({"status": status})
+        .eq("id", session_id)
+        .execute()
+    )
+
+
 async def store_calibration_embedding(
     sequence_id: str,
     session_id: str,

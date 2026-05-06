@@ -16,6 +16,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.services.analysis import analyze_session
 from app.config import settings
+from app.db.queries import get_exercise_by_name, get_user_centroid
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -84,7 +85,25 @@ async def websocket_stream(websocket: WebSocket):
                 threshold = settings.deviation_threshold
 
                 if session_user_id and model is not None:
-                    record = get_centroid(session_user_id, session_exercise)
+                    record = None
+                    # Prefer persisted centroid from Supabase; fallback to in-memory.
+                    try:
+                        exercise = await get_exercise_by_name(session_exercise)
+                        if exercise:
+                            db_record = await get_user_centroid(
+                                user_id=session_user_id,
+                                exercise_id=exercise["id"],
+                            )
+                            if db_record:
+                                record = {
+                                    "centroid": np.array(db_record["centroid"], dtype=np.float32),
+                                    "threshold": db_record.get("threshold", threshold),
+                                }
+                    except Exception as e:
+                        logger.warning(f"Centroid DB lookup failed, falling back to memory: {e}")
+
+                    if record is None:
+                        record = get_centroid(session_user_id, session_exercise)
                     if record:
                         user_centroid = record["centroid"]
                         threshold = record.get("threshold", threshold)
