@@ -135,6 +135,73 @@ class EvaluationResponse(BaseModel):
     message: str = ""
 
 
+# ─── Progress Tracking ────────────────────────────────────────
+
+
+class ProgressCheckinRequest(BaseModel):
+    """Request to record a user's workout progress checkpoint."""
+    user_id: str
+    exercise_name: str
+    reps_completed: int = Field(ge=0)
+    average_quality_score: float = Field(ge=0.0, le=100.0)
+    passed_reps: int = Field(default=0, ge=0)
+    failed_reps: int = Field(default=0, ge=0)
+    duration_seconds: Optional[float] = Field(default=None, ge=0.0)
+    notes: str = ""
+
+
+class ProgressCheckinResponse(BaseModel):
+    """Response for an accepted progress check-in."""
+    checkin_id: str
+    user_id: str
+    exercise_name: str
+    reps_completed: int
+    average_quality_score: float
+    created_at: str
+    message: str = "Progress check-in recorded."
+
+
+class ProgressTrendPoint(BaseModel):
+    """Daily aggregate data point for progress trends."""
+    date: str
+    total_reps: int
+    average_quality_score: float
+    checkins: int
+
+
+class ProgressSummaryResponse(BaseModel):
+    """Summary + trend window for a user's exercise progress."""
+    user_id: str
+    exercise_name: str
+    days: int
+    total_reps: int
+    average_quality_score: float
+    total_checkins: int
+    trend: list[ProgressTrendPoint] = []
+
+
+# ─── Auth (MVP) ─────────────────────────────────────────────
+
+
+class RegisterUserRequest(BaseModel):
+    """Create a new app-level user account."""
+    username: str = Field(min_length=3, max_length=32)
+    password: str = Field(min_length=6, max_length=128)
+
+
+class LoginUserRequest(BaseModel):
+    """Authenticate an existing app-level user account."""
+    username: str = Field(min_length=3, max_length=32)
+    password: str = Field(min_length=6, max_length=128)
+
+
+class AuthUserResponse(BaseModel):
+    """Response payload for login/register operations."""
+    user_id: str
+    username: str
+    message: str
+
+
 # ─── WebSocket ──────────────────────────────────────────────
 
 

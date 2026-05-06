@@ -102,6 +102,59 @@ export interface EvaluationResponse {
   message: string;
 }
 
+// ─── Progress Tracking ──────────────────────────────────────
+
+export interface ProgressCheckinRequest {
+  user_id: string;
+  exercise_name: string;
+  reps_completed: number;
+  average_quality_score: number;
+  passed_reps?: number;
+  failed_reps?: number;
+  duration_seconds?: number;
+  notes?: string;
+}
+
+export interface ProgressCheckinResponse {
+  checkin_id: string;
+  user_id: string;
+  exercise_name: string;
+  reps_completed: number;
+  average_quality_score: number;
+  created_at: string;
+  message: string;
+}
+
+export interface ProgressTrendPoint {
+  date: string;
+  total_reps: number;
+  average_quality_score: number;
+  checkins: number;
+}
+
+export interface ProgressSummaryResponse {
+  user_id: string;
+  exercise_name: string;
+  days: number;
+  total_reps: number;
+  average_quality_score: number;
+  total_checkins: number;
+  trend: ProgressTrendPoint[];
+}
+
+// ─── Auth (MVP) ────────────────────────────────────────────
+
+export interface AuthUserRequest {
+  username: string;
+  password: string;
+}
+
+export interface AuthUserResponse {
+  user_id: string;
+  username: string;
+  message: string;
+}
+
 // ─── WebSocket ────────────────────────────────────────────
 
 export interface WSFrameMessage {

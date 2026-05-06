@@ -24,6 +24,10 @@ frontend/.vite/
 *.onnx
 checkpoints/
 dataset/
+backend/data/
+backend/data/fit3d_train/
+backend/data/fit3d_test/
+backend/data/*.tar.gz
 # ─── C++ Build ──────────────────────────────────────────
 cpp/build/
 *.so

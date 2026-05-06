@@ -4,11 +4,16 @@
  */
 
 import type {
+  AuthUserRequest,
+  AuthUserResponse,
   CalibrationFinalizeResponse,
   CalibrationSequenceRequest,
   CalibrationStartResponse,
   EvaluationRequest,
   EvaluationResponse,
+  ProgressCheckinRequest,
+  ProgressCheckinResponse,
+  ProgressSummaryResponse,
   TaskStatusResponse,
   UploadResponse,
 } from "./types";
@@ -116,6 +121,46 @@ export async function evaluateMovement(
   req: EvaluationRequest
 ): Promise<EvaluationResponse> {
   return request<EvaluationResponse>("/api/v1/evaluate", {
+    method: "POST",
+    body: JSON.stringify(req),
+  });
+}
+
+// ─── Progress ───────────────────────────────────────────────
+
+export async function createProgressCheckin(
+  req: ProgressCheckinRequest
+): Promise<ProgressCheckinResponse> {
+  return request<ProgressCheckinResponse>("/api/v1/progress/checkin", {
+    method: "POST",
+    body: JSON.stringify(req),
+  });
+}
+
+export async function getProgressSummary(
+  userId: string,
+  exerciseName: string,
+  days = 14
+): Promise<ProgressSummaryResponse> {
+  const params = new URLSearchParams({
+    user_id: userId,
+    exercise_name: exerciseName,
+    days: String(days),
+  });
+  return request<ProgressSummaryResponse>(`/api/v1/progress/summary?${params.toString()}`);
+}
+
+// ─── Auth ───────────────────────────────────────────────────
+
+export async function registerUser(req: AuthUserRequest): Promise<AuthUserResponse> {
+  return request<AuthUserResponse>("/api/v1/auth/register", {
+    method: "POST",
+    body: JSON.stringify(req),
+  });
+}
+
+export async function loginUser(req: AuthUserRequest): Promise<AuthUserResponse> {
+  return request<AuthUserResponse>("/api/v1/auth/login", {
     method: "POST",
     body: JSON.stringify(req),
   });

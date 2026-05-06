@@ -8,6 +8,7 @@ from Supabase PostgreSQL with pgvector.
 from __future__ import annotations
 
 from typing import Optional
+from datetime import datetime, timedelta, timezone
 
 from app.db.supabase_client import get_supabase_client
 
@@ -211,3 +212,92 @@ async def get_closest_calibration_sequence(
     ).execute()
 
     return result.data[0] if result.data else None
+
+
+async def create_progress_checkin(
+    user_id: str,
+    exercise_id: str,
+    reps_completed: int,
+    average_quality_score: float,
+    passed_reps: int = 0,
+    failed_reps: int = 0,
+    duration_seconds: Optional[float] = None,
+    notes: str = "",
+) -> dict:
+    """Persist a workout progress check-in row."""
+    client = get_supabase_client()
+    payload = {
+        "user_id": user_id,
+        "exercise_id": exercise_id,
+        "reps_completed": reps_completed,
+        "average_quality_score": average_quality_score,
+        "passed_reps": passed_reps,
+        "failed_reps": failed_reps,
+        "duration_seconds": duration_seconds,
+        "notes": notes,
+    }
+    result = client.table("progress_checkins").insert(payload).execute()
+    return result.data[0] if result.data else {}
+
+
+async def list_progress_checkins(
+    user_id: str,
+    exercise_id: str,
+    days: int = 14,
+) -> list[dict]:
+    """Fetch recent progress check-ins for trend aggregation."""
+    client = get_supabase_client()
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    result = (
+        client.table("progress_checkins")
+        .select("id,reps_completed,average_quality_score,created_at")
+        .eq("user_id", user_id)
+        .eq("exercise_id", exercise_id)
+        .gte("created_at", since.isoformat())
+        .order("created_at", desc=False)
+        .execute()
+    )
+    return result.data or []
+
+
+async def get_app_user_by_username(username: str) -> Optional[dict]:
+    """Fetch app user row by username."""
+    client = get_supabase_client()
+    result = (
+        client.table("app_users")
+        .select("id,username,password_hash")
+        .eq("username", username)
+        .limit(1)
+        .execute()
+    )
+    return result.data[0] if result.data else None
+
+
+async def create_app_user(username: str, password_hash: str) -> dict:
+    """Create a new app user with hashed password."""
+    client = get_supabase_client()
+    result = (
+        client.table("app_users")
+        .insert({
+            "username": username,
+            "password_hash": password_hash,
+        })
+        .execute()
+    )
+    return result.data[0] if result.data else {}
+
+
+async def ensure_user_profile(user_id: str, display_name: str = "") -> dict:
+    """Ensure a matching user_profiles row exists for app-level auth user id."""
+    client = get_supabase_client()
+    result = (
+        client.table("user_profiles")
+        .upsert(
+            {
+                "id": user_id,
+                "display_name": display_name,
+            }
+        )
+        .execute()
+    )
+    return result.data[0] if result.data else {}

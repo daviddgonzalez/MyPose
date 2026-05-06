@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import WebcamCapture from "./WebcamCapture";
 import { EXERCISES } from "@/lib/exercises";
 import {
@@ -9,6 +9,7 @@ import {
   finalizeCalibration,
 } from "@/lib/api";
 import type { FrameData, Landmark } from "@/lib/types";
+import { getStoredUser } from "@/lib/user";
 
 type Step = "select" | "record" | "review" | "finalize";
 
@@ -37,6 +38,14 @@ export default function CalibrationWizard({
   const [statusMsg, setStatusMsg] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [finalizing, setFinalizing] = useState(false);
+  const [userId, setUserId] = useState<string>("dev-user");
+
+  useEffect(() => {
+    const activeUser = getStoredUser();
+    if (activeUser?.userId) {
+      setUserId(activeUser.userId);
+    }
+  }, []);
 
   const steps: { key: Step; label: string }[] = [
     { key: "select", label: "Select Exercise" },
@@ -52,14 +61,14 @@ export default function CalibrationWizard({
     setError(null);
 
     try {
-      const res = await startCalibration("dev-user", selectedExercise);
+      const res = await startCalibration(userId, selectedExercise);
       setSessionId(res.session_id);
       setStep("record");
       setStatusMsg(res.message);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start calibration");
     }
-  }, [selectedExercise]);
+  }, [selectedExercise, userId]);
 
   const handleStartRecording = useCallback(() => {
     setCurrentFrames([]);

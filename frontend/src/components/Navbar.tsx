@@ -3,19 +3,40 @@
 import Link from "next/link";
 import { useState, useRef, useEffect } from "react";
 import { EXERCISES } from "@/lib/exercises";
+import { clearStoredUser, getStoredUser, getUserUpdatedEventName } from "@/lib/user";
 
 export default function Navbar() {
   const [catalogOpen, setCatalogOpen] = useState(false);
+  const [activeUsername, setActiveUsername] = useState<string | null>(null);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
   const catalogRef = useRef<HTMLDivElement>(null);
+  const userMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (catalogRef.current && !catalogRef.current.contains(event.target as Node)) {
         setCatalogOpen(false);
       }
+      if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
+        setUserMenuOpen(false);
+      }
     }
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    const syncUser = () => {
+      const user = getStoredUser();
+      setActiveUsername(user?.username || null);
+    };
+    syncUser();
+    window.addEventListener("storage", syncUser);
+    window.addEventListener(getUserUpdatedEventName(), syncUser);
+    return () => {
+      window.removeEventListener("storage", syncUser);
+      window.removeEventListener(getUserUpdatedEventName(), syncUser);
+    };
   }, []);
 
   return (
@@ -60,17 +81,44 @@ export default function Navbar() {
           )}
         </div>
 
-        <Link href="/build-progress" className="shimmer-nav px-4 py-2 text-[var(--pke-text-secondary)] hover:text-[var(--pke-text-primary)] rounded-lg hover:bg-[var(--pke-bg-surface)] transition-all">
-          Progress
-        </Link>
       </nav>
       
-      <div className="ml-auto hidden md:flex items-center gap-2 text-[10px] uppercase font-bold text-[var(--pke-text-muted)] tracking-widest" suppressHydrationWarning>
-        <div className="relative flex items-center justify-center w-2 h-2">
-          <span className="w-1.5 h-1.5 bg-[var(--pke-success)] rounded-full animate-ping absolute opacity-75" />
-          <span className="w-1.5 h-1.5 bg-[var(--pke-success)] rounded-full relative z-10" />
-        </div>
-        <span className="ml-1 text-[var(--pke-text-muted)] transition-colors">API: {(process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/^https?:\/\//, '')}</span>
+      <div className="ml-auto hidden md:flex items-center" suppressHydrationWarning>
+        {!activeUsername ? (
+          <Link href="/login" className="pke-btn pke-btn-primary pke-btn-sm">
+            Log In
+          </Link>
+        ) : (
+          <div className="relative" ref={userMenuRef}>
+            <button
+              onClick={() => setUserMenuOpen((v) => !v)}
+              className="shimmer-nav px-3 py-2 text-sm text-[var(--pke-text-secondary)] hover:text-[var(--pke-text-primary)] rounded-lg hover:bg-[var(--pke-bg-surface)] transition-all flex items-center gap-1.5"
+            >
+              User: {activeUsername}
+              <svg className={`w-3.5 h-3.5 transition-transform duration-300 ${userMenuOpen ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+            </button>
+            {userMenuOpen && (
+              <div className="absolute right-0 top-full mt-2 w-44 bg-[var(--pke-bg-card)] shadow-[var(--pke-shadow-xl)] flex flex-col z-50 rounded-md border border-[var(--pke-border)] animate-scale-in origin-top-right overflow-hidden">
+                <Link
+                  href="/build-progress"
+                  onClick={() => setUserMenuOpen(false)}
+                  className="px-4 py-3 hover:bg-[var(--pke-bg-surface)] text-[var(--pke-text-primary)] text-sm font-medium transition-all"
+                >
+                  My Progress
+                </Link>
+                <button
+                  onClick={() => {
+                    clearStoredUser();
+                    setUserMenuOpen(false);
+                  }}
+                  className="px-4 py-3 hover:bg-[var(--pke-bg-surface)] text-left text-sm font-medium text-[var(--pke-text-primary)] transition-all border-t border-[var(--pke-border)]"
+                >
+                  Log Out
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </header>
   );
