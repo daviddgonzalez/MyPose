@@ -13,11 +13,32 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
 
   async function handleAuth(mode: "login" | "register") {
+    const normalizedUsername = username.trim().toLowerCase();
+    const trimmedPassword = password.trim();
+
+    if (!normalizedUsername) {
+      setError("Please enter a username.");
+      setStatusMsg("");
+      return;
+    }
+
+    if (!trimmedPassword) {
+      setError("Please enter a password.");
+      setStatusMsg("");
+      return;
+    }
+
+    if (mode === "register" && trimmedPassword.length < 6) {
+      setError("Password must be at least 6 characters.");
+      setStatusMsg("");
+      return;
+    }
+
     setLoading(true);
     setError(null);
     setStatusMsg("");
     try {
-      const payload = { username: username.trim().toLowerCase(), password };
+      const payload = { username: normalizedUsername, password: trimmedPassword };
       const res = mode === "register" ? await registerUser(payload) : await loginUser(payload);
       saveStoredUser({ userId: res.user_id, username: res.username });
       setStatusMsg(mode === "register" ? "Account created and logged in." : "Logged in.");
