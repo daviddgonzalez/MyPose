@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Optional
 from datetime import datetime, timedelta, timezone
+import json
 
 from app.db.supabase_client import get_supabase_client
 
@@ -110,7 +111,12 @@ async def compute_and_store_centroid(
         raise ValueError(f"No embeddings found for session {session_id}")
 
     # Compute centroid (mean of all embeddings)
-    embeddings = [seq["embedding"] for seq in sequences.data]
+    embeddings = []
+    for seq in sequences.data:
+        emb = seq["embedding"]
+        if isinstance(emb, str):
+            emb = json.loads(emb)
+        embeddings.append(emb)
     num_embeddings = len(embeddings)
     dim = len(embeddings[0])
 
@@ -273,15 +279,18 @@ async def get_app_user_by_username(username: str) -> Optional[dict]:
     return result.data[0] if result.data else None
 
 
-async def create_app_user(username: str, password_hash: str) -> dict:
+async def create_app_user(username: str, password_hash: str, user_id: str | None = None) -> dict:
     """Create a new app user with hashed password."""
     client = get_supabase_client()
+    payload = {
+        "username": username,
+        "password_hash": password_hash,
+    }
+    if user_id:
+        payload["id"] = user_id
     result = (
         client.table("app_users")
-        .insert({
-            "username": username,
-            "password_hash": password_hash,
-        })
+        .insert(payload)
         .execute()
     )
     if not result.data:

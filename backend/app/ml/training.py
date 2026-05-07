@@ -227,29 +227,34 @@ def finetune(
     optimizer = torch.optim.Adam(model.head.parameters(), lr=lr)
     criterion = ContrastiveLoss(margin=margin)
 
+    # Build all positive pairs once; train with a batched forward pass so
+    # BatchNorm in the head can update running stats during calibration.
+    anchor_batch = []
+    pair_batch = []
+    for i in range(len(tensors)):
+        for j in range(i + 1, len(tensors)):
+            anchor_batch.append(tensors[i])
+            pair_batch.append(tensors[j])
+
+    if not anchor_batch:
+        logger.warning("No calibration pairs generated for fine-tuning")
+        model.eval()
+        return model
+
+    anchors = torch.stack(anchor_batch, dim=0)  # (P, 3, T, 33)
+    pairs = torch.stack(pair_batch, dim=0)      # (P, 3, T, 33)
+    labels = torch.zeros((anchors.shape[0],), device=device)  # all positive
+
     for epoch in range(1, epochs + 1):
-        epoch_loss = 0.0
-        pairs = 0
+        emb_a = model(anchors)
+        emb_b = model(pairs)
+        loss = criterion(emb_a, emb_b, labels)
 
-        # Create all positive pairs (same user's good form)
-        for i in range(len(tensors)):
-            for j in range(i + 1, len(tensors)):
-                anchor = tensors[i].unsqueeze(0)  # (1, 3, T, 33)
-                pair = tensors[j].unsqueeze(0)
-                label = torch.tensor([0.0], device=device)  # positive pair
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
 
-                emb_a = model(anchor)
-                emb_b = model(pair)
-                loss = criterion(emb_a, emb_b, label)
-
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
-
-                epoch_loss += loss.item()
-                pairs += 1
-
-        avg_loss = epoch_loss / max(pairs, 1)
+        avg_loss = float(loss.item())
         if epoch % 3 == 0 or epoch == 1:
             logger.info(f"  Fine-tune epoch {epoch}/{epochs} — Loss: {avg_loss:.6f}")
 

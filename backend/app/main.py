@@ -47,9 +47,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 hidden_dim=settings.projection_hidden_dim,
                 embedding_dim=settings.embedding_dim,
             )
-            print(f"   ✓ Model loaded from {checkpoint}")
+            print(f"   [OK] Model loaded from {checkpoint}")
         except Exception as e:
-            print(f"   ✗ Failed to load model: {e}")
+            print(f"   [ERROR] Failed to load model: {e}")
             app.state.model = None
     else:
         print(f"   [WARN] No checkpoint found at {checkpoint} - running heuristic-only mode")
