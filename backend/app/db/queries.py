@@ -284,7 +284,9 @@ async def create_app_user(username: str, password_hash: str) -> dict:
         })
         .execute()
     )
-    return result.data[0] if result.data else {}
+    if not result.data:
+        raise RuntimeError("app_users insert returned no row (check RLS or DB error response).")
+    return result.data[0]
 
 
 async def ensure_user_profile(user_id: str, display_name: str = "") -> dict:

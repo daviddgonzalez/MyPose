@@ -7,6 +7,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import logging
 import os
 import uuid
 
@@ -21,8 +22,32 @@ from app.utils.schemas import (
 
 router = APIRouter()
 
+logger = logging.getLogger(__name__)
+
 # In-memory fallback so local dev can still proceed if Supabase is unavailable.
 _local_users: dict[str, dict] = {}
+
+
+def _is_duplicate_username_error(exc: BaseException) -> bool:
+    """Detect Postgres UNIQUE / duplicate insert from nested client exceptions."""
+    parts: list[str] = []
+    seen: set[int] = set()
+    cur: BaseException | None = exc
+    while cur is not None and id(cur) not in seen:
+        seen.add(id(cur))
+        parts.append(repr(cur))
+        parts.append(str(cur))
+        cur = cur.__cause__ or cur.__context__
+
+    hay = " ".join(parts).lower()
+    needles = (
+        "23505",
+        "unique constraint",
+        "duplicate key",
+        "already exists",
+        "app_users_username_key",
+    )
+    return any(n in hay for n in needles)
 
 
 def _hash_password(password: str, salt: bytes | None = None) -> str:
@@ -50,6 +75,9 @@ async def register_user(request: RegisterUserRequest):
     if not username:
         raise HTTPException(status_code=400, detail="Username is required.")
 
+    if username in _local_users:
+        raise HTTPException(status_code=409, detail="Username is already taken.")
+
     password_hash = _hash_password(request.password)
 
     # Prefer Supabase persistence.
@@ -70,9 +98,19 @@ async def register_user(request: RegisterUserRequest):
         )
     except HTTPException:
         raise
-    except Exception:
+    except RuntimeError as e:
+        if "app_users insert returned no row" in str(e):
+            raise HTTPException(status_code=500, detail="Unable to create user.") from e
+        raise
+    except Exception as e:
+        if _is_duplicate_username_error(e):
+            raise HTTPException(status_code=409, detail="Username is already taken.")
+
+        logger.warning("Supabase register failed; using in-memory fallback: %s", e)
+
         if username in _local_users:
             raise HTTPException(status_code=409, detail="Username is already taken.")
+
         user_id = str(uuid.uuid4())
         _local_users[username] = {
             "id": user_id,

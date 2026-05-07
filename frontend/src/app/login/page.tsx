@@ -22,7 +22,7 @@ export default function LoginPage() {
       return;
     }
 
-    if (!rawPassword) {
+    if (!password.trim()) {
       setError("Please enter a password.");
       setStatusMsg("");
       return;
@@ -51,6 +51,8 @@ export default function LoginPage() {
       // Show a cleaner auth message for expected invalid credential cases.
       if (mode === "login" && message.includes("Invalid username or password")) {
         setError("No account found with that username, or password is incorrect.");
+      } else if (mode === "register" && message.includes("Username is already taken")) {
+        setError("That username is already taken. Choose another or log in.");
       } else {
         setError(message);
       }

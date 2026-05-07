@@ -30,8 +30,9 @@ const nextConfig: NextConfig = {
       ];
     }
 
-    // `next dev` only: implicit local backend when BACKEND_API_URL is unset.
-    if (process.env.NODE_ENV !== "production") {
+    // Only `next dev` sets NODE_ENV=development. Treat anything else as a production-ish
+    // build so unset NODE_ENV during `docker build` / CI does not hardcode localhost.
+    if (process.env.NODE_ENV === "development") {
       const local = "http://localhost:8000";
       return [
         {
@@ -45,12 +46,10 @@ const nextConfig: NextConfig = {
       ];
     }
 
-    if (process.env.NODE_ENV === "production") {
-      console.warn(
-        "[next.config] BACKEND_API_URL unset — omitting API rewrites in this production build. " +
-          "Set BACKEND_API_URL at build time, or use NEXT_PUBLIC_API_URL so client calls hit the backend directly."
-      );
-    }
+    console.warn(
+      "[next.config] BACKEND_API_URL unset — omitting API rewrites in this build. " +
+        "Set BACKEND_API_URL at build time (or NEXT_PUBLIC_API_URL for direct browser API calls)."
+    );
 
     return [];
   },

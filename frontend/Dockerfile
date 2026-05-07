@@ -17,6 +17,11 @@ ENV BACKEND_API_URL=${BACKEND_API_URL}
 
 ARG NEXT_PUBLIC_API_URL=http://localhost:8000
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+
+# Ensures next.config.ts rewrites are not treated as non-production during `npm run build`
+# when NODE_ENV is unset (otherwise localhost proxies get baked into the build).
+ENV NODE_ENV=production
+
 RUN npm run build
 
 # ── Stage 2: Runner ───────────────────────────────────────
