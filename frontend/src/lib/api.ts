@@ -19,14 +19,14 @@ import type {
 } from "./types";
 
 const BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+  process.env.NEXT_PUBLIC_API_URL?.trim() || "";
 
 function buildApiErrorMessage(path: string, status: number, body: string): string {
   const normalized = body.trim();
 
   // Handle HTML error pages (commonly from wrong base URL hitting frontend app).
   if (normalized.startsWith("<!DOCTYPE html") || normalized.startsWith("<html")) {
-    return `API ${status}: Backend endpoint not found for ${path}. Check NEXT_PUBLIC_API_URL and ensure backend /api routes are running.`;
+    return `API ${status}: Backend endpoint not found for ${path}. Check frontend rewrite BACKEND_API_URL (or NEXT_PUBLIC_API_URL) and ensure backend /api routes are running.`;
   }
 
   // Handle JSON-style FastAPI errors.
