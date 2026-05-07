@@ -10,7 +10,11 @@ RUN npm ci
 # Copy source
 COPY . .
 
-# Build (standalone output)
+# Build (standalone output). Rewrites read BACKEND_API_URL at **build** time — pass the public
+# backend origin (no trailing slash), e.g. https://your-api.up.railway.app .
+ARG BACKEND_API_URL=
+ENV BACKEND_API_URL=${BACKEND_API_URL}
+
 ARG NEXT_PUBLIC_API_URL=http://localhost:8000
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 RUN npm run build
