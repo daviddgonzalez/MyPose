@@ -1,6 +1,10 @@
 /**
  * Typed fetch wrappers for PKE backend REST API endpoints.
- * Base URL is configurable via NEXT_PUBLIC_API_URL environment variable.
+ *
+ * - `NEXT_PUBLIC_API_URL`: optional; if set, browser calls this host (full URL, no trailing slash).
+ * - Otherwise in **development** we default to `http://localhost:8000` (direct to FastAPI).
+ * - Otherwise in **production** we use relative URLs (same origin); pair with rewrites in
+ *   `next.config.ts` driven by `BACKEND_API_URL`, or set `NEXT_PUBLIC_API_URL` instead.
  */
 
 import type {
@@ -18,15 +22,25 @@ import type {
   UploadResponse,
 } from "./types";
 
+const PUBLIC_API = process.env.NEXT_PUBLIC_API_URL?.trim() ?? "";
 const BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL?.trim() || "";
+  PUBLIC_API.length > 0
+    ? PUBLIC_API
+    : process.env.NODE_ENV === "development"
+      ? "http://localhost:8000"
+      : "";
 
 function buildApiErrorMessage(path: string, status: number, body: string): string {
   const normalized = body.trim();
 
   // Handle HTML error pages (commonly from wrong base URL hitting frontend app).
   if (normalized.startsWith("<!DOCTYPE html") || normalized.startsWith("<html")) {
-    return `API ${status}: Backend endpoint not found for ${path}. Check frontend rewrite BACKEND_API_URL (or NEXT_PUBLIC_API_URL) and ensure backend /api routes are running.`;
+    return (
+      `API ${status}: Backend endpoint not found for ${path}. ` +
+      `Production: set BACKEND_API_URL in the frontend build (next.config rewrites) or set NEXT_PUBLIC_API_URL for direct API calls. ` +
+      `Development: default base is http://localhost:8000 when NEXT_PUBLIC_API_URL is unset. ` +
+      `Ensure the FastAPI app is running and exposes /api routes.`
+    );
   }
 
   // Handle JSON-style FastAPI errors.
