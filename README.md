@@ -117,6 +117,7 @@ To support both live tracking and a fallback MVP, the pipeline standardizes arou
 - Keep this as a deferred feature until core calibration/evaluation persistence is fully wired to Supabase.
 - New-user default behavior: if a user has no personalization history, evaluate against the base model only.
 - Add a **Personalize** button so users can opt into transfer learning, especially for mobility limitations where base-model expectations are not a good fit.
+- Redesign mobile navigation/layout so tabs are consistently visible and usable on small screens.
 
 ### Personalize UX flow (deferred)
 
@@ -148,6 +149,17 @@ Use this exact prompt in a new chat:
    - `calibration_sessions`
    - `calibration_sequences` (with embeddings)
    - `calibration_centroids`
+
+### Latest pretrain run (checkpoint note)
+
+- data_dir: `backend/data/fit3d_train`
+- epochs: `10`
+- batch_size: `16`
+- lr: `1e-3`
+- device: `cpu`
+- output checkpoints:
+  - `backend/checkpoints/pke_pretrained.pt` (best)
+  - `backend/checkpoints/pke_pretrained_final.pt` (final)
 
 ### Runnable verification
 
