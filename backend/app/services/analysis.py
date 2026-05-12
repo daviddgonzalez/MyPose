@@ -38,6 +38,7 @@ class JointSummary:
     mean_angle_degrees: float
     range_of_motion_degrees: float
     stability_score: float  # 0–1, higher = more consistent
+    combined_score: float = 0.0  # 0–1, min of stability and ROM ratio; agrees with `passed`
     passed: bool = True
     issues: list[str] = field(default_factory=list)
 
@@ -136,41 +137,33 @@ def analyze_session(
         # ── Step 5: Compute heuristic score ───────────────────────────
         heuristic_score = _compute_overall_score(joint_summaries, profile, exercise_name)
 
-        # ── Step 6: ML embedding evaluation (when calibration exists) ─
+        # ── Step 6: ML personal-match evaluation (when calibration exists) ──
+        # The personal match is *not* blended into the overall score. The
+        # Textbook score (heuristic) answers "is this textbook form?"; the
+        # Personal match badge answers a separate question — "does this match
+        # YOUR baseline?". Blending them produces a number that means neither.
         ml_passed = None
         ml_distance = None
         calibration_available = False
 
         if user_centroid is not None and model is not None:
             try:
-                # Forward pass: normalized tensor → embedding
                 embedding = model.embed(normalized)  # (1, embedding_dim)
-                emb_vec = embedding[0]  # (embedding_dim,)
-
-                # Cosine distance for L2-normalized vectors: 1 - dot(a, b)
+                emb_vec = embedding[0]
                 dot = float(np.dot(emb_vec, user_centroid))
                 ml_distance = float(1.0 - dot)
 
                 effective_threshold = threshold if threshold is not None else settings.deviation_threshold
                 ml_passed = ml_distance <= effective_threshold
-
                 calibration_available = True
                 logger.info(
-                    f"ML evaluation: distance={ml_distance:.4f}, "
+                    f"Personal match: distance={ml_distance:.4f}, "
                     f"threshold={effective_threshold:.4f}, passed={ml_passed}"
                 )
-
-                # Map ML distance to a 0-100 score (closer = higher)
-                ml_score = max(0.0, min(100.0, (1 - ml_distance / (effective_threshold * 2)) * 100))
-
-                # Blend heuristic + ML (ML weighted more heavily)
-                overall_score = 0.4 * heuristic_score + 0.6 * ml_score
             except Exception as e:
-                logger.warning(f"ML embedding failed, using heuristic only: {e}")
-                overall_score = heuristic_score
-        else:
-            overall_score = heuristic_score
+                logger.warning(f"Personal-match embedding failed: {e}")
 
+        overall_score = heuristic_score
         message = _generate_feedback_message(overall_score, joint_summaries, duration)
 
         return SessionFeedback(
@@ -225,15 +218,23 @@ def _compute_joint_summaries(angles: np.ndarray, profile: StrictnessProfile, exe
             issues.append(f"Inconsistent stability (score: {stability:.2f})")
             
         target_rom = get_rom_target(exercise, name, profile)
-        if target_rom > 0 and angle_range < target_rom:
-            passed = False
-            issues.append(f"Insufficient ROM ({angle_range:.0f}° / target {target_rom:.0f}°)")
+        rom_ratio = 1.0
+        if target_rom > 0:
+            rom_ratio = min(1.0, angle_range / target_rom)
+            if angle_range < target_rom:
+                passed = False
+                issues.append(f"Insufficient ROM ({angle_range:.0f}° / target {target_rom:.0f}°)")
+
+        # Combined score: the bottleneck dimension drags the display down so a
+        # joint's bar agrees with its pass/fail border.
+        combined = min(stability, rom_ratio) if target_rom > 0 else stability
 
         summaries.append(JointSummary(
             joint_name=name,
             mean_angle_degrees=round(mean_angle, 1),
             range_of_motion_degrees=round(angle_range, 1),
             stability_score=round(stability, 3),
+            combined_score=round(combined, 3),
             passed=passed,
             issues=issues
         ))

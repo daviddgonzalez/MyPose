@@ -161,3 +161,15 @@ def extract_landmarks_from_frames(
         all_landmarks.append(frame_arr)
 
     return np.array(all_landmarks, dtype=np.float32)  # (T, 33, 4)
+
+
+def frames_to_array(frames) -> np.ndarray:
+    """
+    Convert a list of Pydantic FrameData objects (from REST input) to numpy.
+
+    Returns (T, 33, 4) — same shape as extract_landmarks_from_frames.
+    """
+    all_landmarks = []
+    for frame in frames:
+        all_landmarks.append([[lm.x, lm.y, lm.z, lm.visibility] for lm in frame.landmarks])
+    return np.array(all_landmarks, dtype=np.float32)

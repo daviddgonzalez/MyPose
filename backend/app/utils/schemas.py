@@ -73,6 +73,7 @@ class TaskStatusResponse(BaseModel):
     progress: float = Field(default=0.0, ge=0.0, le=1.0, description="0.0 to 1.0")
     message: str = ""
     landmarks_extracted: Optional[int] = None
+    evaluation: Optional["EvaluationResponse"] = None
 
 
 # ─── Calibration ────────────────────────────────────────────
@@ -234,6 +235,7 @@ class JointSummarySchema(BaseModel):
     mean_angle_degrees: float
     range_of_motion_degrees: float
     stability_score: float  # 0–1, higher = more consistent
+    combined_score: float = 0.0  # 0–1, min of stability and ROM ratio; agrees with `passed`
     passed: bool = True
     issues: list[str] = []
 
@@ -252,3 +254,7 @@ class WSSessionFeedback(BaseModel):
     passed: Optional[bool] = None
     distance_to_centroid: Optional[float] = None
     calibration_available: bool = False
+
+
+# Resolve forward reference for TaskStatusResponse.evaluation (declared above).
+TaskStatusResponse.model_rebuild()

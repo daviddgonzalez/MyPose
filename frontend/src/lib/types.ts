@@ -49,6 +49,7 @@ export interface TaskStatusResponse {
   progress: number;
   message: string;
   landmarks_extracted?: number | null;
+  evaluation?: EvaluationResponse | null;
 }
 
 // ─── Calibration ──────────────────────────────────────────
@@ -195,6 +196,7 @@ export interface JointSummary {
   mean_angle_degrees: number;
   range_of_motion_degrees: number;
   stability_score: number; // 0–1, higher = more consistent
+  combined_score: number; // 0–1, min of stability and ROM ratio; agrees with `passed`
   passed: boolean;
   issues: string[];
 }

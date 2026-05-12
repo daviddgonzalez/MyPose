@@ -22,6 +22,7 @@ from app.utils.schemas import (
 )
 from app.config import settings
 from app.services.normalization import normalize_landmarks
+from app.services.extraction import frames_to_array
 from app.db.queries import (
     create_calibration_session,
     compute_and_store_centroid,
@@ -135,10 +136,25 @@ async def finalize_calibration(session_id: str):
 
     session = _sessions[session_id]
 
-    if len(session["sequences"]) < 3:
+    # Frontend gates on wall-clock duration (>=30s total, >=5s per take); the
+    # backend re-checks total frame count as defense in depth in case a client
+    # bypasses the UI. The frame floors assume a permissive 15fps minimum so
+    # slower webcams aren't rejected: 5s -> 75 frames, 30s -> 450 frames.
+    MIN_FRAMES_PER_SEQ = 75
+    MIN_TOTAL_FRAMES = 450
+    seq_frame_counts = [
+        len(seq["landmarks"]) for seq in session["sequences"] if seq["landmarks"]
+    ]
+    total_frames = sum(seq_frame_counts)
+    short_seqs = [n for n in seq_frame_counts if n < MIN_FRAMES_PER_SEQ]
+    if total_frames < MIN_TOTAL_FRAMES or short_seqs:
         raise HTTPException(
             status_code=400,
-            detail=f"Need at least 3 sequences to calibrate. Current: {len(session['sequences'])}.",
+            detail=(
+                f"Calibration data too short. Recorded {total_frames} frames across "
+                f"{len(seq_frame_counts)} take(s); need at least {MIN_TOTAL_FRAMES} total "
+                f"and {MIN_FRAMES_PER_SEQ} per take."
+            ),
         )
 
     session["status"] = CalibrationStatus.PROCESSING
@@ -173,14 +189,7 @@ async def finalize_calibration(session_id: str):
     raw_sequences: list[np.ndarray] = []
     for seq in session["sequences"]:
         if seq["landmarks"]:
-            # Convert FrameData list to numpy array
-            frames = []
-            for frame in seq["landmarks"]:
-                frame_lms = []
-                for lm in frame.landmarks:
-                    frame_lms.append([lm.x, lm.y, lm.z, lm.visibility])
-                frames.append(frame_lms)
-            raw_sequences.append(np.array(frames, dtype=np.float32))
+            raw_sequences.append(frames_to_array(seq["landmarks"]))
 
     if len(raw_sequences) < 3:
         return CalibrationFinalizeResponse(

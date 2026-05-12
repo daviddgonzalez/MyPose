@@ -2,9 +2,14 @@
 
 import { useCallback, useRef, useState } from "react";
 import { uploadVideo, getUploadStatus } from "@/lib/api";
-import type { TaskStatus, TaskStatusResponse } from "@/lib/types";
+import type { TaskStatus, TaskStatusResponse, EvaluationResponse } from "@/lib/types";
 
-export default function VideoUploader() {
+interface VideoUploaderProps {
+  userId?: string;
+  exerciseSlug?: string;
+}
+
+export default function VideoUploader({ userId, exerciseSlug }: VideoUploaderProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -63,7 +68,10 @@ export default function VideoUploader() {
     setError(null);
 
     try {
-      const response = await uploadVideo(file);
+      const response = await uploadVideo(file, {
+        userId,
+        exerciseName: exerciseSlug,
+      });
       setTaskStatus({
         task_id: response.task_id,
         status: response.status,
@@ -76,7 +84,7 @@ export default function VideoUploader() {
     } finally {
       setUploading(false);
     }
-  }, [file, startPolling]);
+  }, [file, startPolling, userId, exerciseSlug]);
 
   const resetUploader = useCallback(() => {
     if (pollingRef.current) clearInterval(pollingRef.current);
@@ -127,6 +135,15 @@ export default function VideoUploader() {
             <p className="text-xs text-[var(--pke-text-muted)] mt-1">
               Supports .mp4, .mov, .mpeg — max 100 MB
             </p>
+            {userId && exerciseSlug ? (
+              <p className="text-[10px] text-[var(--pke-text-muted)] mt-2 uppercase tracking-widest">
+                Will be scored against your {exerciseSlug.replace(/_/g, " ")} calibration
+              </p>
+            ) : (
+              <p className="text-[10px] text-[var(--pke-text-muted)] mt-2 uppercase tracking-widest">
+                Sign in & calibrate this exercise to get an ML score
+              </p>
+            )}
           </div>
 
           <input
@@ -216,6 +233,10 @@ export default function VideoUploader() {
             {taskStatus.message}
           </p>
 
+          {taskStatus.evaluation && (
+            <EvaluationPanel evaluation={taskStatus.evaluation} />
+          )}
+
           {(taskStatus.status === ("complete" as TaskStatus) ||
             taskStatus.status === ("failed" as TaskStatus)) && (
             <button
@@ -232,6 +253,76 @@ export default function VideoUploader() {
       {error && (
         <div className="p-3 rounded-lg bg-[rgba(239,68,68,0.1)] border border-[var(--pke-danger)] text-sm text-[var(--pke-danger)]">
           {error}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+function EvaluationPanel({ evaluation }: { evaluation: EvaluationResponse }) {
+  const distancePct = Math.min(100, (evaluation.distance_to_centroid / Math.max(evaluation.threshold, 1e-6)) * 100);
+  const accent = evaluation.passed ? "var(--pke-success)" : "var(--pke-danger)";
+
+  return (
+    <div className="pke-card p-4 space-y-3 border-t-2" style={{ borderColor: accent }}>
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] font-extrabold uppercase tracking-widest text-[var(--pke-text-muted)]">
+          ML Evaluation
+        </span>
+        <span
+          className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest rounded-full"
+          style={{ background: accent, color: "white" }}
+        >
+          {evaluation.passed ? "Passed" : "Deviation"}
+        </span>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 text-xs">
+        <div>
+          <p className="text-[var(--pke-text-muted)] uppercase tracking-wider text-[10px]">Distance</p>
+          <p className="font-mono text-[var(--pke-text-primary)]">
+            {evaluation.distance_to_centroid.toFixed(4)}
+          </p>
+        </div>
+        <div>
+          <p className="text-[var(--pke-text-muted)] uppercase tracking-wider text-[10px]">Threshold</p>
+          <p className="font-mono text-[var(--pke-text-primary)]">
+            {evaluation.threshold.toFixed(4)}
+          </p>
+        </div>
+      </div>
+
+      <div className="pke-progress" aria-label="Distance vs threshold">
+        <div
+          className="pke-progress-bar"
+          style={{ width: `${distancePct}%`, background: accent }}
+        />
+      </div>
+
+      <p className="text-xs text-[var(--pke-text-secondary)]">{evaluation.message}</p>
+
+      {evaluation.dtw_triggered && evaluation.joint_errors.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-[10px] font-extrabold uppercase tracking-widest text-[var(--pke-text-muted)]">
+            Per-Joint Deviations (DTW)
+          </p>
+          <div className="grid grid-cols-1 gap-1">
+            {[...evaluation.joint_errors]
+              .sort((a, b) => b.error_score - a.error_score)
+              .slice(0, 5)
+              .map((je) => (
+                <div
+                  key={je.joint_index}
+                  className="flex items-center justify-between text-xs"
+                >
+                  <span className="text-[var(--pke-text-primary)]">{je.joint_name}</span>
+                  <span className="font-mono text-[var(--pke-text-muted)]">
+                    {je.description}
+                  </span>
+                </div>
+              ))}
+          </div>
         </div>
       )}
     </div>

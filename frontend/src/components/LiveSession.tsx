@@ -309,67 +309,91 @@ export default function LiveSession({ exerciseName, userId }: LiveSessionProps) 
 
           {/* Score + Summary */}
           <div className="px-6 py-5">
-            <div className="flex items-center gap-6 mb-5">
-              {/* Score Circle */}
-              <div className="relative w-20 h-20 shrink-0">
-                <svg className="w-full h-full -rotate-90" viewBox="0 0 36 36">
-                  <path
-                    d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                    fill="none"
-                    stroke="#e2e8f0"
-                    strokeWidth="3"
-                  />
-                  <path
-                    d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                    fill="none"
-                    stroke={
-                      sessionFeedback.overall_score >= 80
-                        ? "#10b981"
-                        : sessionFeedback.overall_score >= 60
-                        ? "#6366f1"
-                        : sessionFeedback.overall_score >= 40
-                        ? "#f59e0b"
-                        : "#ef4444"
-                    }
-                    strokeWidth="3"
-                    strokeDasharray={`${sessionFeedback.overall_score}, 100`}
-                    strokeLinecap="round"
-                  />
-                </svg>
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <span className="text-lg font-extrabold text-[#0f172a]">
-                    {Math.round(sessionFeedback.overall_score)}
-                  </span>
+            <div className="flex flex-col lg:flex-row lg:items-stretch gap-4 mb-5">
+              {/* Textbook score (heuristic) — always shown */}
+              <div className="flex items-center gap-4 flex-1 p-4 border border-[#e2e8f0] rounded-md">
+                <div className="relative w-20 h-20 shrink-0">
+                  <svg className="w-full h-full -rotate-90" viewBox="0 0 36 36">
+                    <path
+                      d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                      fill="none"
+                      stroke="#e2e8f0"
+                      strokeWidth="3"
+                    />
+                    <path
+                      d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                      fill="none"
+                      stroke={
+                        sessionFeedback.overall_score >= 80
+                          ? "#10b981"
+                          : sessionFeedback.overall_score >= 60
+                          ? "#6366f1"
+                          : sessionFeedback.overall_score >= 40
+                          ? "#f59e0b"
+                          : "#ef4444"
+                      }
+                      strokeWidth="3"
+                      strokeDasharray={`${sessionFeedback.overall_score}, 100`}
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <span className="text-lg font-extrabold text-[#0f172a]">
+                      {Math.round(sessionFeedback.overall_score)}
+                    </span>
+                  </div>
+                </div>
+                <div className="min-w-0">
+                  <p className="text-[10px] font-extrabold text-[#94a3b8] uppercase tracking-widest">
+                    Textbook score
+                  </p>
+                  <p className="text-[11px] text-[var(--pke-text-muted)] mt-0.5">
+                    Generic ROM &amp; stability vs. exercise targets
+                  </p>
+                  <p className="text-xs text-[#475569] mt-2 leading-relaxed">
+                    {sessionFeedback.message}
+                  </p>
                 </div>
               </div>
 
-              <div className="min-w-0">
-                <p className="text-sm text-[#475569] leading-relaxed">
-                  {sessionFeedback.message}
-                </p>
-
-                {/* ML-READY: Show pass/fail when calibration is available */}
-                {sessionFeedback.calibration_available &&
-                  sessionFeedback.passed !== null &&
-                  sessionFeedback.passed !== undefined && (
-                    <div className="mt-2 flex items-center gap-2">
-                      <span
-                        className={`px-3 py-1 text-[10px] font-bold uppercase tracking-widest ${
-                          sessionFeedback.passed
-                            ? "bg-[#10b981]/10 text-[#10b981]"
-                            : "bg-[#ef4444]/10 text-[#ef4444]"
-                        }`}
-                      >
-                        {sessionFeedback.passed ? "Passed" : "Deviation Detected"}
-                      </span>
-                      {sessionFeedback.distance_to_centroid != null && (
-                        <span className="text-[11px] text-[var(--pke-text-muted)]">
-                          Distance: {sessionFeedback.distance_to_centroid.toFixed(4)}
-                        </span>
-                      )}
+              {/* Personal match (ML) — only when calibration is available */}
+              {sessionFeedback.calibration_available &&
+                sessionFeedback.passed !== null &&
+                sessionFeedback.passed !== undefined && (
+                  <div className="flex items-center gap-4 flex-1 p-4 border border-[#e2e8f0] rounded-md">
+                    <div
+                      className={`w-20 h-20 shrink-0 rounded-full flex items-center justify-center text-[10px] font-extrabold uppercase tracking-widest text-white ${
+                        sessionFeedback.passed ? "bg-[#10b981]" : "bg-[#ef4444]"
+                      }`}
+                    >
+                      {sessionFeedback.passed ? "Match" : "Off"}
                     </div>
-                  )}
-              </div>
+                    <div className="min-w-0">
+                      <p className="text-[10px] font-extrabold text-[#94a3b8] uppercase tracking-widest">
+                        Personal match
+                      </p>
+                      <p className="text-[11px] text-[var(--pke-text-muted)] mt-0.5">
+                        Consistency with your calibration baseline
+                      </p>
+                      <div className="mt-2 flex items-center gap-2 flex-wrap">
+                        <span
+                          className={`px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest ${
+                            sessionFeedback.passed
+                              ? "bg-[#10b981]/10 text-[#10b981]"
+                              : "bg-[#ef4444]/10 text-[#ef4444]"
+                          }`}
+                        >
+                          {sessionFeedback.passed ? "Passed" : "Deviation"}
+                        </span>
+                        {sessionFeedback.distance_to_centroid != null && (
+                          <span className="text-[11px] text-[var(--pke-text-muted)] font-mono">
+                            dist {sessionFeedback.distance_to_centroid.toFixed(4)}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
             </div>
 
             {/* Joint Breakdown */}
@@ -409,9 +433,9 @@ export default function LiveSession({ exerciseName, userId }: LiveSessionProps) 
                             <div
                               className="h-full rounded-full transition-all duration-500"
                               style={{
-                                width: `${joint.stability_score * 100}%`,
+                                width: `${joint.combined_score * 100}%`,
                                 backgroundColor: joint.passed
-                                  ? joint.stability_score >= 0.7
+                                  ? joint.combined_score >= 0.7
                                     ? "#10b981"
                                     : "#f59e0b"
                                   : "#ef4444",
@@ -419,7 +443,7 @@ export default function LiveSession({ exerciseName, userId }: LiveSessionProps) 
                             />
                           </div>
                           <span className="text-[10px] font-bold text-[#94a3b8] w-8 text-right">
-                            {Math.round(joint.stability_score * 100)}%
+                            {Math.round(joint.combined_score * 100)}%
                           </span>
                         </div>
                       </div>

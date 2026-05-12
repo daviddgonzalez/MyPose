@@ -76,9 +76,14 @@ async function request<T>(
 
 // ─── Upload ───────────────────────────────────────────────
 
-export async function uploadVideo(file: File): Promise<UploadResponse> {
+export async function uploadVideo(
+  file: File,
+  options?: { userId?: string; exerciseName?: string }
+): Promise<UploadResponse> {
   const formData = new FormData();
   formData.append("file", file);
+  if (options?.userId) formData.append("user_id", options.userId);
+  if (options?.exerciseName) formData.append("exercise_name", options.exerciseName);
 
   const res = await fetch(`${BASE_URL}/api/v1/upload`, {
     method: "POST",

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import WebcamCapture from "./WebcamCapture";
 import { EXERCISES } from "@/lib/exercises";
 import {
@@ -13,8 +13,9 @@ import { getStoredUser } from "@/lib/user";
 
 type Step = "select" | "record" | "review" | "finalize";
 
-const REQUIRED_SEQUENCES = 3;
-const MAX_SEQUENCES = 5;
+const MIN_SEQUENCE_SECONDS = 5;
+const MIN_TOTAL_SECONDS = 30;
+const MAX_SEQUENCES = 8;
 
 interface RecordedSequence {
   id: number;
@@ -39,6 +40,22 @@ export default function CalibrationWizard({
   const [error, setError] = useState<string | null>(null);
   const [finalizing, setFinalizing] = useState(false);
   const [userId, setUserId] = useState<string>("dev-user");
+  const recordingStartRef = useRef<number | null>(null);
+  const [, setNow] = useState(0); // 1Hz tick so the live recording timer re-renders
+
+  // Drive a 1Hz re-render only while recording, for the live timer.
+  useEffect(() => {
+    if (!isRecording) return;
+    const handle = setInterval(() => setNow((n) => n + 1), 250);
+    return () => clearInterval(handle);
+  }, [isRecording]);
+
+  const totalSeconds = sequences.reduce((sum, s) => sum + s.duration, 0);
+  const currentSeqSeconds = isRecording && recordingStartRef.current
+    ? (Date.now() - recordingStartRef.current) / 1000
+    : 0;
+  const canFinalize = totalSeconds >= MIN_TOTAL_SECONDS;
+  const totalPct = Math.min(100, (totalSeconds / MIN_TOTAL_SECONDS) * 100);
 
   useEffect(() => {
     const activeUser = getStoredUser();
@@ -72,22 +89,36 @@ export default function CalibrationWizard({
 
   const handleStartRecording = useCallback(() => {
     setCurrentFrames([]);
+    recordingStartRef.current = Date.now();
     setIsRecording(true);
-    setStatusMsg("Recording… perform the exercise with correct form");
+    setStatusMsg(
+      `Recording… perform the exercise with correct form (min ${MIN_SEQUENCE_SECONDS}s per take)`
+    );
   }, []);
 
   const handleStopRecording = useCallback(async () => {
+    const startedAt = recordingStartRef.current ?? Date.now();
+    const elapsed = (Date.now() - startedAt) / 1000;
+    recordingStartRef.current = null;
     setIsRecording(false);
 
+    if (elapsed < MIN_SEQUENCE_SECONDS) {
+      setStatusMsg(
+        `Take was only ${elapsed.toFixed(1)}s — need at least ${MIN_SEQUENCE_SECONDS}s. Discarded; try again.`
+      );
+      setCurrentFrames([]);
+      return;
+    }
     if (currentFrames.length < 10) {
-      setStatusMsg("Too few frames captured. Try again.");
+      setStatusMsg("Too few frames captured — check webcam permissions and try again.");
+      setCurrentFrames([]);
       return;
     }
 
     const newSeq: RecordedSequence = {
       id: sequences.length + 1,
       frames: [...currentFrames],
-      duration: currentFrames.length / 30,
+      duration: elapsed,
     };
 
     // Submit sequence to backend
@@ -103,15 +134,20 @@ export default function CalibrationWizard({
       }
     }
 
+    const nextTotal = totalSeconds + elapsed;
     setSequences((prev) => [...prev, newSeq]);
     setCurrentFrames([]);
 
-    if (sequences.length + 1 >= REQUIRED_SEQUENCES) {
+    if (nextTotal >= MIN_TOTAL_SECONDS) {
       setStatusMsg(
-        `${sequences.length + 1} sequences recorded. You can finalize or record more (max ${MAX_SEQUENCES}).`
+        `Calibration is ready (${nextTotal.toFixed(1)}s of ${MIN_TOTAL_SECONDS}s recorded). Add more reps or click Review.`
+      );
+    } else {
+      setStatusMsg(
+        `${nextTotal.toFixed(1)}s / ${MIN_TOTAL_SECONDS}s recorded — keep going.`
       );
     }
-  }, [currentFrames, sequences, sessionId]);
+  }, [currentFrames, sequences, sessionId, totalSeconds]);
 
   const handleLandmarks = useCallback(
     (landmarks: { x: number; y: number; z: number }[]) => {
@@ -192,12 +228,35 @@ export default function CalibrationWizard({
         {/* Step 1: Select Exercise */}
         {step === "select" && (
           <div className="space-y-4">
-            <h3 className="text-lg font-semibold text-[var(--pke-text-primary)]">
+            <div className="border-l-4 border-[var(--pke-accent)] bg-[var(--pke-bg-surface)] p-4 space-y-2 rounded-r-md">
+              <p className="text-[10px] font-extrabold uppercase tracking-widest text-[var(--pke-accent)]">
+                Personalization is optional
+              </p>
+              <p className="text-sm text-[var(--pke-text-secondary)] leading-relaxed">
+                <strong className="text-[var(--pke-text-primary)]">What it adds:</strong> a
+                second feedback score — <em>Personal match</em> — that tells you whether a session
+                looks like the way <em>you</em> normally do this exercise. The always-on
+                <em> Textbook score</em> (generic ROM &amp; stability) keeps working without this.
+              </p>
+              <p className="text-sm text-[var(--pke-text-secondary)] leading-relaxed">
+                <strong className="text-[var(--pke-text-primary)]">When to skip:</strong> you do
+                the exercise traditionally and want plain textbook-form grading.
+                <strong className="text-[var(--pke-text-primary)]"> When to do it:</strong> your
+                body diverges from generic targets (mobility, proportions) or you want to track
+                consistency against your own baseline.
+              </p>
+              <p className="text-sm text-[var(--pke-text-secondary)] leading-relaxed">
+                <strong className="text-[var(--pke-text-primary)]">Cost:</strong> ~30 seconds of
+                recording, split into takes of at least 5 seconds each.
+              </p>
+            </div>
+
+            <h3 className="text-lg font-semibold text-[var(--pke-text-primary)] pt-2">
               Choose an Exercise
             </h3>
             <p className="text-sm text-[var(--pke-text-secondary)]">
-              Select the exercise you want to calibrate. You&apos;ll record 3–5
-              sequences of correct form to create your personal baseline.
+              Select the exercise you want to personalize. You&apos;ll record at least 30 seconds
+              of correct form to create your baseline.
             </p>
 
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-4">
@@ -245,8 +304,7 @@ export default function CalibrationWizard({
                   Record Sequences
                 </h3>
                 <p className="text-sm text-[var(--pke-text-secondary)]">
-                  {sequences.length}/{MAX_SEQUENCES} recorded (min{" "}
-                  {REQUIRED_SEQUENCES})
+                  {totalSeconds.toFixed(1)}s / {MIN_TOTAL_SECONDS}s recorded — min {MIN_SEQUENCE_SECONDS}s per take
                 </p>
               </div>
 
@@ -265,10 +323,10 @@ export default function CalibrationWizard({
                         onClick={handleStartRecording}
                         className="pke-btn pke-btn-primary pke-btn-sm"
                       >
-                        Record Sequence {sequences.length + 1}
+                        Record Take {sequences.length + 1}
                       </button>
                     )}
-                    {sequences.length >= REQUIRED_SEQUENCES && (
+                    {canFinalize && (
                       <button
                         onClick={() => setStep("review")}
                         className="pke-btn pke-btn-secondary pke-btn-sm"
@@ -281,12 +339,35 @@ export default function CalibrationWizard({
               </div>
             </div>
 
+            {/* Total-duration progress bar */}
+            <div className="space-y-1">
+              <div className="pke-progress">
+                <div
+                  className="pke-progress-bar"
+                  style={{
+                    width: `${totalPct}%`,
+                    background: canFinalize ? 'var(--pke-success)' : undefined,
+                  }}
+                />
+              </div>
+              <p className="text-[10px] text-[var(--pke-text-muted)] uppercase tracking-widest">
+                {canFinalize
+                  ? `Threshold met — ${totalSeconds.toFixed(1)}s of ${MIN_TOTAL_SECONDS}s`
+                  : `${(MIN_TOTAL_SECONDS - totalSeconds).toFixed(1)}s to go`}
+              </p>
+            </div>
+
             {/* Recording indicator */}
             {isRecording && (
-              <div className="flex items-center gap-2 text-sm">
+              <div className="flex items-center gap-3 text-sm">
                 <span className="w-3 h-3 rounded-full bg-[var(--pke-danger)] animate-pulse" />
                 <span className="text-[var(--pke-danger)] font-medium">
-                  Recording — {currentFrames.length} frames
+                  Recording — {currentSeqSeconds.toFixed(1)}s
+                  {currentSeqSeconds < MIN_SEQUENCE_SECONDS && (
+                    <span className="ml-2 text-[var(--pke-text-muted)] font-normal">
+                      (need {(MIN_SEQUENCE_SECONDS - currentSeqSeconds).toFixed(1)}s more)
+                    </span>
+                  )}
                 </span>
               </div>
             )}
@@ -332,7 +413,7 @@ export default function CalibrationWizard({
               Review & Finalize
             </h3>
             <p className="text-sm text-[var(--pke-text-secondary)]">
-              You&apos;ve recorded {sequences.length} calibration sequences. Review
+              You&apos;ve recorded {totalSeconds.toFixed(1)}s across {sequences.length} take{sequences.length === 1 ? "" : "s"}. Review
               and finalize to create your personal baseline.
             </p>
 
@@ -370,7 +451,8 @@ export default function CalibrationWizard({
               </button>
               <button
                 onClick={handleFinalize}
-                disabled={finalizing}
+                disabled={finalizing || !canFinalize}
+                title={!canFinalize ? `Need ${MIN_TOTAL_SECONDS}s total — you have ${totalSeconds.toFixed(1)}s` : undefined}
                 className="pke-btn pke-btn-primary"
               >
                 {finalizing ? (
@@ -398,11 +480,14 @@ export default function CalibrationWizard({
                 "Your baseline is being computed. This may take a few minutes."}
             </p>
             <div className="flex justify-center gap-3 pt-2">
-              <a href="/catalog" className="pke-btn pke-btn-secondary">
-                Browse Catalog
+              <a href="/" className="pke-btn pke-btn-secondary">
+                Home
               </a>
-              <a href="/live" className="pke-btn pke-btn-primary">
-                Start Live Session
+              <a
+                href={selectedExercise ? `/catalog/${selectedExercise}` : "/"}
+                className="pke-btn pke-btn-primary"
+              >
+                Back to Exercise
               </a>
             </div>
           </div>

@@ -12,9 +12,9 @@ import logging
 import os
 import tempfile
 import uuid
-from typing import Dict
+from typing import Dict, Optional
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, UploadFile, File
+from fastapi import APIRouter, BackgroundTasks, HTTPException, UploadFile, File, Form, Request
 
 from app.config import settings
 from app.services.extraction import extract_landmarks_from_video
@@ -31,9 +31,16 @@ _tasks: Dict[str, TaskStatusResponse] = {}
 _extraction_results: Dict[str, dict] = {}
 
 
-async def _process_video(task_id: str, local_path: str):
+async def _process_video(
+    task_id: str,
+    local_path: str,
+    model: object | None = None,
+    user_id: Optional[str] = None,
+    exercise_name: Optional[str] = None,
+):
     """
-    Background task: extract landmarks from video and normalize.
+    Background task: extract landmarks from video, normalize, and optionally
+    evaluate against the user's calibration centroid.
 
     Updates task status as it progresses through the pipeline.
     """
@@ -74,6 +81,27 @@ async def _process_video(task_id: str, local_path: str):
             "raw_frame_count": landmarks.shape[0],
         }
 
+        # Step 3 (optional): Auto-evaluate against user calibration.
+        # Only runs when the caller supplied user_id + exercise_name AND the
+        # model is loaded. Errors here don't fail the extraction task.
+        if model is not None and user_id and exercise_name:
+            try:
+                from app.api.routes_evaluate import run_evaluation
+                evaluation = await run_evaluation(
+                    user_id=user_id,
+                    exercise_name=exercise_name,
+                    landmarks_arr=landmarks,
+                    model=model,
+                )
+                _tasks[task_id].evaluation = evaluation
+                _extraction_results[task_id]["evaluation"] = evaluation
+                logger.info(
+                    f"Task {task_id}: evaluation passed={evaluation.passed} "
+                    f"distance={evaluation.distance_to_centroid:.4f}"
+                )
+            except Exception as e:
+                logger.warning(f"Task {task_id}: auto-evaluation failed (non-fatal): {e}")
+
         # Update status: complete
         _tasks[task_id].status = TaskStatus.COMPLETE
         _tasks[task_id].progress = 1.0
@@ -101,13 +129,18 @@ async def _process_video(task_id: str, local_path: str):
 @router.post("/upload", response_model=UploadResponse)
 async def upload_video(
     background_tasks: BackgroundTasks,
+    request: Request,
     file: UploadFile = File(...),
+    user_id: Optional[str] = Form(default=None),
+    exercise_name: Optional[str] = Form(default=None),
 ):
     """
     Upload an .mp4 video for asynchronous pose extraction.
 
     The video is saved locally and processed in the background via MediaPipe.
-    Poll the status endpoint to track progress.
+    Poll the status endpoint to track progress. When `user_id` and
+    `exercise_name` are provided AND the user has calibrated, the task
+    additionally produces an evaluation against their baseline.
     """
     # Validate file type
     if file.content_type not in ("video/mp4", "video/mpeg", "video/quicktime"):
@@ -136,8 +169,19 @@ async def upload_video(
         message=f"Video '{file.filename}' received ({file_size_mb:.1f} MB). Queued for processing.",
     )
 
-    # Enqueue background extraction
-    background_tasks.add_task(_process_video, task_id, local_path)
+    # Snapshot the model handle here so the background task doesn't depend on
+    # the Request object outlasting the response.
+    model = getattr(request.app.state, "model", None)
+
+    # Enqueue background extraction (+ optional evaluation)
+    background_tasks.add_task(
+        _process_video,
+        task_id,
+        local_path,
+        model,
+        user_id,
+        exercise_name,
+    )
 
     return UploadResponse(
         task_id=task_id,
@@ -180,5 +224,6 @@ async def get_upload_result(task_id: str):
         "raw_frame_count": result["raw_frame_count"],
         "raw_landmarks_shape": list(result["raw_landmarks"].shape),
         "normalized_tensor_shape": list(result["normalized_tensor"].shape),
+        "evaluation": result.get("evaluation"),
         "message": "Extraction complete. Ready for evaluation.",
     }

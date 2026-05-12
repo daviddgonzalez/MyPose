@@ -1,12 +1,29 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import CalibrationWizard from "@/components/CalibrationWizard";
 import LiveSession from "@/components/LiveSession";
 import VideoUploader from "@/components/VideoUploader";
+import { getStoredUser, getUserUpdatedEventName } from "@/lib/user";
+
+type Tab = "upload" | "live" | "calibrate";
+
+const TABS: { key: Tab; label: string }[] = [
+  { key: "upload", label: "Upload Video" },
+  { key: "live", label: "Live Session" },
+  { key: "calibrate", label: "Personalize" },
+];
 
 export default function ExerciseClient({ exercise }: { exercise: any }) {
-  const [activeTab, setActiveTab] = useState<"upload" | "live">("upload");
-  const [hoverTab, setHoverTab] = useState<"upload" | "live" | null>(null);
+  const [activeTab, setActiveTab] = useState<Tab>("upload");
+  const [hoverTab, setHoverTab] = useState<Tab | null>(null);
+  const [user, setUser] = useState(() => getStoredUser());
+
+  useEffect(() => {
+    const sync = () => setUser(getStoredUser());
+    window.addEventListener(getUserUpdatedEventName(), sync);
+    return () => window.removeEventListener(getUserUpdatedEventName(), sync);
+  }, []);
 
   const currentHighlight = hoverTab || activeTab;
 
@@ -36,31 +53,27 @@ export default function ExerciseClient({ exercise }: { exercise: any }) {
           </div>
 
           {/* Pill Toggle Button */}
-          <div 
+          <div
             className="flex items-center bg-[var(--pke-bg-surface)] rounded-full p-1 border border-[var(--pke-border)] relative shrink-0 shadow-sm"
             onMouseLeave={() => setHoverTab(null)}
           >
-            <div 
+            <div
               className="absolute top-1 bottom-1 bg-white rounded-full shadow-md border border-[var(--pke-border)] transition-all duration-300 ease-out"
               style={{
-                width: 'calc(50% - 4px)',
-                left: currentHighlight === 'upload' ? '4px' : 'calc(50%)'
+                width: '8rem',
+                left: `calc(4px + ${TABS.findIndex((t) => t.key === currentHighlight)} * 8rem)`,
               }}
             />
-            <button
-              onClick={() => setActiveTab("upload")}
-              onMouseEnter={() => setHoverTab("upload")}
-              className={`relative z-10 px-5 py-2 text-[10px] font-bold uppercase tracking-widest transition-colors w-32 rounded-full ${activeTab === 'upload' ? 'text-[var(--pke-text-primary)]' : 'text-[var(--pke-text-muted)]'}`}
-            >
-              Upload Video
-            </button>
-            <button
-              onClick={() => setActiveTab("live")}
-              onMouseEnter={() => setHoverTab("live")}
-              className={`relative z-10 px-5 py-2 text-[10px] font-bold uppercase tracking-widest transition-colors w-32 rounded-full ${activeTab === 'live' ? 'text-[var(--pke-text-primary)]' : 'text-[var(--pke-text-muted)]'}`}
-            >
-              Live Session
-            </button>
+            {TABS.map((t) => (
+              <button
+                key={t.key}
+                onClick={() => setActiveTab(t.key)}
+                onMouseEnter={() => setHoverTab(t.key)}
+                className={`relative z-10 px-5 py-2 text-[10px] font-bold uppercase tracking-widest transition-colors w-32 rounded-full ${activeTab === t.key ? 'text-[var(--pke-text-primary)]' : 'text-[var(--pke-text-muted)]'}`}
+              >
+                {t.label}
+              </button>
+            ))}
           </div>
         </div>
 
@@ -101,7 +114,15 @@ export default function ExerciseClient({ exercise }: { exercise: any }) {
 
         {/* Media Window */}
         <div className="w-full">
-          {activeTab === "upload" ? <VideoUploader /> : <LiveSession exerciseName={exercise.displayName} />}
+          {activeTab === "upload" && (
+            <VideoUploader userId={user?.userId} exerciseSlug={exercise.slug} />
+          )}
+          {activeTab === "live" && (
+            <LiveSession exerciseName={exercise.slug} userId={user?.userId} />
+          )}
+          {activeTab === "calibrate" && (
+            <CalibrationWizard preselectedExercise={exercise.slug} />
+          )}
         </div>
       </div>
     </>
