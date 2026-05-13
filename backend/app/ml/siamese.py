@@ -60,10 +60,8 @@ class SiameseHead(nn.Module):
 
 class ContrastiveLoss(nn.Module):
     """
-    Contrastive loss for Siamese training.
-
-    For positive pairs (same exercise, good form): minimize distance.
-    For negative pairs (different exercise or bad form): push apart up to margin.
+    Pair-based contrastive loss. Retained for the calibration finetune path
+    (see training.finetune); pretraining now uses NTXentLoss.
 
     L = (1-y) * 0.5 * D^2 + y * 0.5 * max(0, margin - D)^2
 
@@ -80,16 +78,54 @@ class ContrastiveLoss(nn.Module):
         embedding2: torch.Tensor,
         label: torch.Tensor,
     ) -> torch.Tensor:
-        """
-        Args:
-            embedding1: (B, D) — first embeddings (L2-normalized).
-            embedding2: (B, D) — second embeddings (L2-normalized).
-            label: (B,) — 0 for positive pair (same), 1 for negative pair (different).
-
-        Returns:
-            Scalar loss.
-        """
         distance = F.pairwise_distance(embedding1, embedding2)
         positive_loss = (1 - label) * 0.5 * distance.pow(2)
         negative_loss = label * 0.5 * F.relu(self.margin - distance).pow(2)
         return (positive_loss + negative_loss).mean()
+
+
+class NTXentLoss(nn.Module):
+    """
+    Normalized temperature-scaled cross-entropy loss (SimCLR-style).
+
+    Given a batch of N samples each producing two augmented views, build the
+    2N x 2N cosine similarity matrix, mask the diagonal, and treat the matching
+    view as the only positive class for each row. All other 2N-2 entries are
+    negatives in the softmax denominator.
+
+    Embeddings must already be L2-normalized (SiameseHead does this).
+    """
+
+    def __init__(self, temperature: float = 0.1):
+        super().__init__()
+        self.temperature = temperature
+
+    def forward(self, view1: torch.Tensor, view2: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            view1, view2: (N, D) — L2-normalized embeddings of two augmented views.
+
+        Returns:
+            Scalar NT-Xent loss averaged over 2N anchors.
+        """
+        batch_size = view1.shape[0]
+        device = view1.device
+
+        # Stack to (2N, D)
+        embeddings = torch.cat([view1, view2], dim=0)
+
+        # Cosine similarity matrix (2N, 2N) — inputs are L2-normalized so
+        # dot product == cosine similarity.
+        sim = embeddings @ embeddings.T
+        sim = sim / self.temperature
+
+        # Mask out self-similarity on the diagonal.
+        diag_mask = torch.eye(2 * batch_size, dtype=torch.bool, device=device)
+        sim = sim.masked_fill(diag_mask, float("-inf"))
+
+        # For row i in the first half, positive is i + batch_size.
+        # For row i in the second half, positive is i - batch_size.
+        positive_indices = torch.arange(2 * batch_size, device=device)
+        positive_indices = (positive_indices + batch_size) % (2 * batch_size)
+
+        return F.cross_entropy(sim, positive_indices)

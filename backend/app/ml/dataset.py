@@ -1,9 +1,10 @@
 """
 Fit3D Dataset Loader for ST-GCN Pre-Training.
 
-Loads skeleton sequences from the Fit3D dataset and prepares contrastive
-pairs for Siamese training. Fit3D provides 3D body joint positions from
-fitness exercises captured with multiple cameras.
+Loads skeleton sequences from the Fit3D dataset and produces self-supervised
+contrastive views for NT-Xent training. Each `__getitem__` call returns two
+*independently augmented* versions of the same sequence; the contrastive
+signal comes from in-batch negatives at the loss layer (see siamese.NTXentLoss).
 
 Expected directory layout after pre-processing:
     data/fit3d/
@@ -13,16 +14,10 @@ Expected directory layout after pre-processing:
     │   └── ...
     ├── deadlift/
     │   └── ...
-    ├── lunge/
-    │   └── ...
     └── ...
 
 Each .npy file should contain a single exercise repetition or short clip,
-already mapped to MediaPipe's 33-joint topology. The loader handles
-normalization via the existing services/normalization.py pipeline.
-
-Pre-processing script (separate): converts Fit3D's raw SMPL-X joints to
-MediaPipe-compatible 33-joint format and saves as .npy files.
+already mapped to MediaPipe's 33-joint topology.
 """
 
 from __future__ import annotations
@@ -37,6 +32,7 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
+from app.ml.augment import augment_skeleton
 from app.services.normalization import normalize_landmarks
 
 logger = logging.getLogger(__name__)
@@ -69,13 +65,17 @@ EXERCISE_ALIASES = {
 
 class Fit3DContrastiveDataset(Dataset):
     """
-    Contrastive pair dataset for Siamese pre-training.
+    Self-supervised contrastive dataset for NT-Xent pretraining.
 
-    Returns pairs of normalized skeleton sequences with labels:
-        - label=0 (positive): both sequences are from the SAME exercise
-        - label=1 (negative): sequences are from DIFFERENT exercises
+    Each `__getitem__` returns TWO independently-augmented views of the same
+    underlying sequence. The contrastive signal comes from in-batch negatives
+    in NTXentLoss: views from the same anchor are positives, all other batch
+    elements are negatives.
 
-    The ratio of positive to negative pairs is approximately 50/50.
+    Pre-augmentation comes from `app.ml.augment.augment_skeleton`. Augmentations
+    run on raw (T, 33, C) landmarks BEFORE the centering/scaling/resampling
+    pipeline in normalize_landmarks so temporal crops and rotations ride the
+    existing math.
     """
 
     def __init__(
@@ -83,15 +83,19 @@ class Fit3DContrastiveDataset(Dataset):
         data_dir: str,
         sequence_length: int = 64,
         max_sequences_per_exercise: Optional[int] = None,
+        augment: bool = True,
     ):
         """
         Args:
             data_dir: Path to the fit3d/ directory containing exercise subfolders.
             sequence_length: Target temporal length for normalization.
             max_sequences_per_exercise: Cap per exercise (for dev/debugging).
+            augment: When False, both views are identical (no augmentations).
+                     Used by Fit3DSingleDataset for embedding extraction.
         """
         self.data_dir = Path(data_dir)
         self.sequence_length = sequence_length
+        self.augment = augment
 
         # Index all sequences by exercise
         self.exercise_sequences: dict[str, list[Path]] = {}
@@ -168,49 +172,23 @@ class Fit3DContrastiveDataset(Dataset):
         # Each sequence can be paired, so dataset size = number of anchor sequences
         return len(self.all_sequences)
 
-    def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Returns:
-            (anchor, pair, label) where:
-                anchor: (3, T, 33) normalized tensor
-                pair:   (3, T, 33) normalized tensor
-                label:  scalar tensor, 0=positive, 1=negative
+            (view1, view2) where each view is a (3, T, 33) normalized tensor
+            obtained by augmenting the same source sequence independently.
         """
-        anchor_exercise, anchor_path = self.all_sequences[idx]
+        _, path = self.all_sequences[idx]
+        raw = self._load_raw(path)  # (T, 33, 4)
+        view1 = self._augment_and_normalize(raw)
+        view2 = self._augment_and_normalize(raw)
+        return view1, view2
 
-        # 50% chance positive pair (same exercise), 50% negative (different)
-        if random.random() < 0.5 and len(self.exercise_sequences[anchor_exercise]) > 1:
-            # Positive pair: different sequence, same exercise
-            candidates = [
-                p for p in self.exercise_sequences[anchor_exercise]
-                if p != anchor_path
-            ]
-            pair_path = random.choice(candidates)
-            label = 0.0
-        else:
-            # Negative pair: different exercise
-            other_exercises = [e for e in self.exercises if e != anchor_exercise]
-            if other_exercises:
-                neg_exercise = random.choice(other_exercises)
-                pair_path = random.choice(self.exercise_sequences[neg_exercise])
-                label = 1.0
-            else:
-                # Fallback: only one exercise available, use same as positive
-                pair_path = random.choice(self.exercise_sequences[anchor_exercise])
-                label = 0.0
-
-        anchor_tensor = self._load_and_normalize(anchor_path)
-        pair_tensor = self._load_and_normalize(pair_path)
-
-        return anchor_tensor, pair_tensor, torch.tensor(label, dtype=torch.float32)
-
-    def _load_and_normalize(self, path: Path) -> torch.Tensor:
-        """Load a .npy sequence and run through the normalization pipeline."""
+    def _load_raw(self, path: Path) -> np.ndarray:
+        """Load a sequence file and return raw (T, 33, 4) landmarks with visibility."""
         if path.suffix.lower() == ".npy":
-            # Preprocessed expected shape (T, 33, 3)
             landmarks = np.load(path).astype(np.float32)
         elif path.suffix.lower() == ".json":
-            # Raw Fit3D expected payload key: joints3d_25 -> (T, 25, 3)
             with path.open("r", encoding="utf-8") as f:
                 payload = json.load(f)
             if "joints3d_25" not in payload:
@@ -223,16 +201,23 @@ class Fit3DContrastiveDataset(Dataset):
         else:
             raise ValueError(f"Unsupported sequence format: {path.suffix}")
 
-        # Add visibility channel if missing → (T, 33, 4)
         if landmarks.shape[-1] == 3:
             visibility = np.ones((*landmarks.shape[:-1], 1), dtype=np.float32)
             landmarks = np.concatenate([landmarks, visibility], axis=-1)
+        return landmarks
 
-        # Run through the existing normalization pipeline
-        # Output shape: (1, 3, T, 33)
+    def _augment_and_normalize(self, landmarks: np.ndarray) -> torch.Tensor:
+        """Augment (if enabled) then run through the normalization pipeline."""
+        if self.augment:
+            landmarks = augment_skeleton(landmarks)
         normalized = normalize_landmarks(landmarks, self.sequence_length)
+        return torch.from_numpy(normalized[0])
 
-        # Remove batch dim → (3, T, 33) and convert to torch
+    def load_normalized(self, idx: int) -> torch.Tensor:
+        """Non-augmented load of one sequence — used for embedding extraction."""
+        _, path = self.all_sequences[idx]
+        raw = self._load_raw(path)
+        normalized = normalize_landmarks(raw, self.sequence_length)
         return torch.from_numpy(normalized[0])
 
 

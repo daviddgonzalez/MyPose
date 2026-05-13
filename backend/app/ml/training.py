@@ -28,12 +28,40 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
+from app.config import settings
 from app.ml.model import PKEModel
-from app.ml.siamese import ContrastiveLoss
+from app.ml.siamese import ContrastiveLoss, NTXentLoss
 from app.ml.dataset import Fit3DContrastiveDataset
 from app.services.normalization import normalize_landmarks
 
 logger = logging.getLogger(__name__)
+
+
+def _build_dataset(
+    dataset_name: str,
+    data_dir: str,
+    sequence_length: int,
+) -> torch.utils.data.Dataset:
+    """
+    Build a contrastive view-pair dataset by name.
+
+    Supported:
+      - "fit3d": Fit3DContrastiveDataset over Fit3D raw/preprocessed data.
+      - "ntu":   NTUContrastiveDataset over NTU RGB+D 120 .skeleton files.
+      - "both":  ConcatDataset of the two.
+    """
+    name = dataset_name.lower()
+    if name == "fit3d":
+        return Fit3DContrastiveDataset(data_dir=data_dir, sequence_length=sequence_length)
+    if name == "ntu":
+        from app.ml.dataset_ntu import NTUContrastiveDataset
+        return NTUContrastiveDataset(data_dir=data_dir, sequence_length=sequence_length)
+    if name == "both":
+        from app.ml.dataset_ntu import NTUContrastiveDataset
+        fit = Fit3DContrastiveDataset(data_dir=data_dir, sequence_length=sequence_length)
+        ntu = NTUContrastiveDataset(data_dir=data_dir, sequence_length=sequence_length)
+        return torch.utils.data.ConcatDataset([fit, ntu])
+    raise ValueError(f"Unknown dataset: {dataset_name!r}. Use one of: fit3d, ntu, both")
 
 
 def pretrain(
@@ -43,46 +71,51 @@ def pretrain(
     batch_size: int = 16,
     lr: float = 1e-3,
     weight_decay: float = 1e-4,
-    margin: float = 1.0,
+    temperature: float = 0.1,
     device: str = "cpu",
     sequence_length: int = 64,
     embedding_dim: int = 256,
     log_interval: int = 10,
+    dataset_name: str = "fit3d",
+    resume_from: str | None = None,
+    checkpoint_suffix: str = "",
 ) -> str:
     """
-    Pre-train the full model (backbone + head) on the Fit3D dataset.
+    Pre-train the full model (backbone + head) using NT-Xent contrastive loss.
 
-    Uses contrastive learning: same-exercise pairs should produce similar
-    embeddings, different-exercise pairs should be pushed apart.
+    Each dataset sample yields two augmented views of the same sequence; in-batch
+    negatives provide the contrastive signal. See app/ml/augment.py for the
+    augmentation policy and app/ml/siamese.py:NTXentLoss for the loss.
 
     Args:
-        data_dir: Path to the Fit3D data directory.
+        data_dir: Root data directory (contains fit3d/, ntu/, etc.).
         checkpoint_dir: Directory to save checkpoints.
         epochs: Number of training epochs.
-        batch_size: Training batch size.
+        batch_size: Training batch size (NT-Xent benefits from larger batches).
         lr: Learning rate.
         weight_decay: L2 regularization.
-        margin: Contrastive loss margin.
+        temperature: NT-Xent temperature τ. Smaller = sharper contrast; tune in [0.05, 0.2].
         device: "cpu" or "cuda".
         sequence_length: Temporal length for normalization.
         embedding_dim: Embedding dimension.
         log_interval: Log every N batches.
+        dataset_name: "fit3d", "ntu", or "both".
+        resume_from: Path to a checkpoint to warm-start from (e.g., NTU pretrain
+                     to seed a Fit3D fine-pretrain). None = train from scratch.
+        checkpoint_suffix: Appended to checkpoint filenames so two-stage runs
+                           don't clobber each other (e.g., "_ntu", "_fit3d").
 
     Returns:
-        Path to the saved checkpoint.
+        Path to the best checkpoint produced by this run.
     """
     logger.info("=" * 60)
-    logger.info("Starting Fit3D pre-training")
+    logger.info(f"Starting pre-training on {dataset_name!r}")
     logger.info(f"  Data: {data_dir}")
-    logger.info(f"  Epochs: {epochs}, Batch: {batch_size}, LR: {lr}")
-    logger.info(f"  Device: {device}")
+    logger.info(f"  Epochs: {epochs}, Batch: {batch_size}, LR: {lr}, τ: {temperature}")
+    logger.info(f"  Device: {device}, Resume: {resume_from or 'no'}")
     logger.info("=" * 60)
 
-    # Dataset
-    dataset = Fit3DContrastiveDataset(
-        data_dir=data_dir,
-        sequence_length=sequence_length,
-    )
+    dataset = _build_dataset(dataset_name, data_dir, sequence_length)
     dataloader = DataLoader(
         dataset,
         batch_size=batch_size,
@@ -91,15 +124,15 @@ def pretrain(
         drop_last=True,
     )
 
-    # Model
-    model = PKEModel.create_fresh(
-        device=device,
-        embedding_dim=embedding_dim,
-    )
-    model.unfreeze_backbone()
+    if resume_from:
+        model = PKEModel.from_checkpoint(resume_from, device=device)
+        model.unfreeze_backbone()
+        logger.info(f"Warm-started from {resume_from}")
+    else:
+        model = PKEModel.create_fresh(device=device, embedding_dim=embedding_dim)
+        model.unfreeze_backbone()
 
-    # Loss & Optimizer
-    criterion = ContrastiveLoss(margin=margin)
+    criterion = NTXentLoss(temperature=temperature)
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=lr,
@@ -107,9 +140,10 @@ def pretrain(
     )
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
 
-    # Training loop
     best_loss = float("inf")
-    checkpoint_path = ""
+    best_name = f"pke_pretrained{checkpoint_suffix}.pt"
+    final_name = f"pke_pretrained_final{checkpoint_suffix}.pt"
+    checkpoint_path = str(Path(checkpoint_dir) / best_name)
 
     for epoch in range(1, epochs + 1):
         model.train()
@@ -117,19 +151,16 @@ def pretrain(
         num_batches = 0
         start_time = time.time()
 
-        for batch_idx, (anchor, pair, label) in enumerate(dataloader):
-            anchor = anchor.to(device)
-            pair = pair.to(device)
-            label = label.to(device)
+        for batch_idx, batch in enumerate(dataloader):
+            view1, view2 = batch
+            view1 = view1.to(device)
+            view2 = view2.to(device)
 
-            # Forward pass
-            emb_anchor = model(anchor)
-            emb_pair = model(pair)
+            emb1 = model(view1)
+            emb2 = model(view2)
 
-            # Contrastive loss
-            loss = criterion(emb_anchor, emb_pair, label)
+            loss = criterion(emb1, emb2)
 
-            # Backward pass
             optimizer.zero_grad()
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
@@ -155,15 +186,12 @@ def pretrain(
             f"Time: {elapsed:.1f}s"
         )
 
-        # Save best checkpoint
         if avg_loss < best_loss:
             best_loss = avg_loss
-            checkpoint_path = str(Path(checkpoint_dir) / "pke_pretrained.pt")
             model.save_checkpoint(checkpoint_path)
-            logger.info(f"  ✓ New best loss — checkpoint saved")
+            logger.info(f"  ✓ New best loss — checkpoint saved ({best_name})")
 
-    # Save final checkpoint
-    final_path = str(Path(checkpoint_dir) / "pke_pretrained_final.pt")
+    final_path = str(Path(checkpoint_dir) / final_name)
     model.save_checkpoint(final_path)
 
     logger.info("=" * 60)
@@ -175,6 +203,22 @@ def pretrain(
     return checkpoint_path
 
 
+def _load_negatives_bank(path: Path, device: str) -> torch.Tensor | None:
+    """
+    Load the precomputed negatives bank if present. Returns a (N, D) tensor on
+    `device`, or None if the file is missing.
+    """
+    if not path.exists():
+        logger.info(f"No negatives bank at {path}; finetune will use positives only")
+        return None
+    bank = np.load(path).astype(np.float32)
+    if bank.ndim != 2:
+        logger.warning(f"Negatives bank at {path} has unexpected shape {bank.shape}; ignoring")
+        return None
+    logger.info(f"Loaded negatives bank: shape {bank.shape}")
+    return torch.from_numpy(bank).to(device)
+
+
 def finetune(
     model: PKEModel,
     sequences: list[np.ndarray],
@@ -182,21 +226,28 @@ def finetune(
     epochs: int = 10,
     margin: float = 0.5,
     sequence_length: int = 64,
+    negatives_bank_path: str | Path | None = None,
+    negatives_per_anchor: int = 3,
 ) -> PKEModel:
     """
     Fine-tune the projection head on a user's calibration sequences.
 
-    Called during calibration finalization. The backbone is frozen and only
-    the projection head is updated to adapt the embedding space to this
-    user's specific movement patterns.
+    The backbone is frozen; only the projection head trains. Positive pairs
+    come from all (i, j) combinations of calibration sequences. If a negatives
+    bank is available, each calibration embedding is also paired against K
+    random fixed bank vectors as negatives — this gives the head a "push apart"
+    signal it otherwise lacks.
 
     Args:
         model: Pre-trained PKEModel (will be modified in-place).
         sequences: List of raw landmark arrays, each (T, 33, 4).
-        lr: Fine-tuning learning rate (lower than pre-training).
+        lr: Fine-tuning learning rate.
         epochs: Number of fine-tuning epochs.
-        margin: Contrastive loss margin (tighter than pre-training).
+        margin: Contrastive loss margin.
         sequence_length: Temporal length for normalization.
+        negatives_bank_path: Path to checkpoints/negatives_bank.npy. Defaults
+            to `<checkpoint_dir>/negatives_bank.npy` from settings.
+        negatives_per_anchor: K negatives per calibration sequence per epoch.
 
     Returns:
         Fine-tuned model (same object, modified in-place).
@@ -207,47 +258,65 @@ def finetune(
 
     logger.info(f"Fine-tuning projection head on {len(sequences)} sequences")
 
-    # Freeze backbone, only train head
     model.freeze_backbone()
     model.train()
 
     device = next(model.parameters()).device
 
-    # Normalize all sequences → tensors
-    tensors = []
+    cal_tensors = []
     for seq in sequences:
-        # seq shape: (T, 33, 4) or (T, 33, 3)
         if seq.shape[-1] == 3:
             vis = np.ones((*seq.shape[:-1], 1), dtype=np.float32)
             seq = np.concatenate([seq, vis], axis=-1)
-        normalized = normalize_landmarks(seq, sequence_length)  # (1, 3, T, 33)
-        tensors.append(torch.from_numpy(normalized[0]).to(device))  # (3, T, 33)
+        normalized = normalize_landmarks(seq, sequence_length)
+        cal_tensors.append(torch.from_numpy(normalized[0]).to(device))
 
-    # Optimizer for head only
-    optimizer = torch.optim.Adam(model.head.parameters(), lr=lr)
-    criterion = ContrastiveLoss(margin=margin)
+    cal_batch = torch.stack(cal_tensors, dim=0)  # (M, 3, T, 33)
+    m = cal_batch.shape[0]
 
-    # Build all positive pairs once; train with a batched forward pass so
-    # BatchNorm in the head can update running stats during calibration.
-    anchor_batch = []
-    pair_batch = []
-    for i in range(len(tensors)):
-        for j in range(i + 1, len(tensors)):
-            anchor_batch.append(tensors[i])
-            pair_batch.append(tensors[j])
-
-    if not anchor_batch:
+    # Indices for all (i, j) positive pairs.
+    pos_i: list[int] = []
+    pos_j: list[int] = []
+    for i in range(m):
+        for j in range(i + 1, m):
+            pos_i.append(i)
+            pos_j.append(j)
+    if not pos_i:
         logger.warning("No calibration pairs generated for fine-tuning")
         model.eval()
         return model
 
-    anchors = torch.stack(anchor_batch, dim=0)  # (P, 3, T, 33)
-    pairs = torch.stack(pair_batch, dim=0)      # (P, 3, T, 33)
-    labels = torch.zeros((anchors.shape[0],), device=device)  # all positive
+    pos_i_t = torch.tensor(pos_i, device=device, dtype=torch.long)
+    pos_j_t = torch.tensor(pos_j, device=device, dtype=torch.long)
+
+    # Resolve negatives bank path: explicit > settings default. None = no negatives.
+    if negatives_bank_path is None:
+        bank_path = Path(settings.checkpoint_dir) / "negatives_bank.npy"
+    else:
+        bank_path = Path(negatives_bank_path)
+    bank = _load_negatives_bank(bank_path, device)
+
+    optimizer = torch.optim.Adam(model.head.parameters(), lr=lr)
+    criterion = ContrastiveLoss(margin=margin)
 
     for epoch in range(1, epochs + 1):
-        emb_a = model(anchors)
-        emb_b = model(pairs)
+        emb_cal = model(cal_batch)  # (M, D)
+
+        # Positive term: matching calibration embeddings, label=0.
+        emb_a = emb_cal[pos_i_t]
+        emb_b = emb_cal[pos_j_t]
+        labels = torch.zeros((emb_a.shape[0],), device=device)
+
+        if bank is not None and bank.shape[0] > 0:
+            k = min(negatives_per_anchor, bank.shape[0])
+            neg_idx = torch.randint(0, bank.shape[0], (m, k), device=device)
+            neg_vecs = bank[neg_idx.flatten()]            # (M*K, D)
+            anchor_repeated = emb_cal.repeat_interleave(k, dim=0)  # (M*K, D)
+            neg_labels = torch.ones((anchor_repeated.shape[0],), device=device)
+            emb_a = torch.cat([emb_a, anchor_repeated], dim=0)
+            emb_b = torch.cat([emb_b, neg_vecs], dim=0)
+            labels = torch.cat([labels, neg_labels], dim=0)
+
         loss = criterion(emb_a, emb_b, labels)
 
         optimizer.zero_grad()
@@ -263,21 +332,30 @@ def finetune(
     return model
 
 
-def compute_centroid(
+def compute_centroid_and_threshold(
     model: PKEModel,
     sequences: list[np.ndarray],
     sequence_length: int = 64,
-) -> np.ndarray:
+    margin: float = 0.05,
+) -> tuple[np.ndarray, float]:
     """
-    Compute the centroid (mean embedding) from calibration sequences.
+    Compute the centroid (mean embedding) and a data-driven threshold from
+    the user's calibration sequences.
+
+    The threshold is set to the maximum intra-cluster distance + a small
+    margin, so a future session that is "no farther from the centroid than
+    your own calibration reps" passes the Personal match check. This makes
+    the threshold reflect the user's actual movement variance rather than a
+    one-size-fits-all constant.
 
     Args:
         model: Fine-tuned PKEModel.
         sequences: List of raw landmark arrays, each (T, 33, 4).
         sequence_length: Temporal length for normalization.
+        margin: Buffer added to max intra-cluster distance.
 
     Returns:
-        Centroid vector of shape (embedding_dim,).
+        (centroid, threshold). centroid is shape (embedding_dim,).
     """
     embeddings = []
     for seq in sequences:
@@ -289,13 +367,27 @@ def compute_centroid(
         embeddings.append(emb[0])
 
     centroid = np.mean(embeddings, axis=0)
-    # Re-normalize the centroid
     centroid = centroid / (np.linalg.norm(centroid) + 1e-8)
 
+    distances = [float(1.0 - np.dot(e, centroid)) for e in embeddings]
+    intra_max = max(distances) if distances else 0.0
+    threshold = intra_max + margin
+
     logger.info(
-        f"Centroid computed from {len(embeddings)} embeddings — "
-        f"norm: {np.linalg.norm(centroid):.4f}"
+        f"Centroid: {len(embeddings)} embeddings, "
+        f"intra-cluster mean={np.mean(distances):.4f} max={intra_max:.4f} -> "
+        f"threshold={threshold:.4f}"
     )
+    return centroid, threshold
+
+
+def compute_centroid(
+    model: PKEModel,
+    sequences: list[np.ndarray],
+    sequence_length: int = 64,
+) -> np.ndarray:
+    """Backwards-compatible wrapper. Prefer compute_centroid_and_threshold."""
+    centroid, _ = compute_centroid_and_threshold(model, sequences, sequence_length)
     return centroid
 
 
@@ -311,14 +403,27 @@ if __name__ == "__main__":
     subparsers = parser.add_subparsers(dest="command")
 
     # Pre-train command
-    pt = subparsers.add_parser("pretrain", help="Pre-train on Fit3D dataset")
-    pt.add_argument("--data-dir", required=True, help="Path to Fit3D data directory")
+    pt = subparsers.add_parser("pretrain", help="NT-Xent pretrain on skeleton data")
+    pt.add_argument("--data-dir", required=True, help="Root data directory")
     pt.add_argument("--checkpoint-dir", default="checkpoints")
     pt.add_argument("--epochs", type=int, default=50)
     pt.add_argument("--batch-size", type=int, default=16)
     pt.add_argument("--lr", type=float, default=1e-3)
+    pt.add_argument("--temperature", type=float, default=0.1)
     pt.add_argument("--device", default="cpu")
     pt.add_argument("--embedding-dim", type=int, default=256)
+    pt.add_argument(
+        "--dataset",
+        choices=["fit3d", "ntu", "both"],
+        default="fit3d",
+        help="Which dataset to pretrain on",
+    )
+    pt.add_argument("--resume-from", default=None, help="Checkpoint to warm-start from")
+    pt.add_argument(
+        "--checkpoint-suffix",
+        default="",
+        help="Suffix on saved checkpoint filename (e.g., _ntu, _fit3d)",
+    )
 
     args = parser.parse_args()
 
@@ -329,8 +434,12 @@ if __name__ == "__main__":
             epochs=args.epochs,
             batch_size=args.batch_size,
             lr=args.lr,
+            temperature=args.temperature,
             device=args.device,
             embedding_dim=args.embedding_dim,
+            dataset_name=args.dataset,
+            resume_from=args.resume_from,
+            checkpoint_suffix=args.checkpoint_suffix,
         )
     else:
         parser.print_help()
