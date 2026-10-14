@@ -136,24 +136,22 @@ async def finalize_calibration(session_id: str):
 
     session = _sessions[session_id]
 
-    # Frontend gates on wall-clock duration (>=30s total, >=5s per take); the
-    # backend re-checks total frame count as defense in depth in case a client
-    # bypasses the UI. The frame floors assume a permissive 15fps minimum so
-    # slower webcams aren't rejected: 5s -> 75 frames, 30s -> 450 frames.
-    MIN_FRAMES_PER_SEQ = 75
-    MIN_TOTAL_FRAMES = 450
+    # Frontend gates on wall-clock duration (>=30s total). The backend uses
+    # only a loose total-frames floor as defense in depth in case a client
+    # bypasses the UI. No per-take minimum: take count is irrelevant — the
+    # total recording length is what matters. The floor (150) corresponds to
+    # roughly 30s at a worst-case 5fps webcam, so slow hardware isn't rejected.
+    MIN_TOTAL_FRAMES = 150
     seq_frame_counts = [
         len(seq["landmarks"]) for seq in session["sequences"] if seq["landmarks"]
     ]
     total_frames = sum(seq_frame_counts)
-    short_seqs = [n for n in seq_frame_counts if n < MIN_FRAMES_PER_SEQ]
-    if total_frames < MIN_TOTAL_FRAMES or short_seqs:
+    if total_frames < MIN_TOTAL_FRAMES:
         raise HTTPException(
             status_code=400,
             detail=(
                 f"Calibration data too short. Recorded {total_frames} frames across "
-                f"{len(seq_frame_counts)} take(s); need at least {MIN_TOTAL_FRAMES} total "
-                f"and {MIN_FRAMES_PER_SEQ} per take."
+                f"{len(seq_frame_counts)} take(s); need at least {MIN_TOTAL_FRAMES} total."
             ),
         )
 
@@ -202,7 +200,7 @@ async def finalize_calibration(session_id: str):
 
     # ── Fine-tune projection head on user's sequences ────────────
     try:
-        from app.ml.training import finetune, compute_centroid
+        from app.ml.training import finetune, compute_centroid_and_threshold
 
         finetune(
             model=model,
@@ -211,15 +209,15 @@ async def finalize_calibration(session_id: str):
             epochs=settings.finetune_epochs,
         )
 
-        # ── Compute and store centroid ────────────────────────────
-        centroid = compute_centroid(model, raw_sequences)
+        # ── Compute centroid + data-driven threshold ──────────────
+        centroid, threshold = compute_centroid_and_threshold(model, raw_sequences)
 
         from app.api.ws_live import store_centroid
         store_centroid(
             user_id=session["user_id"],
             exercise=session["exercise_name"],
             centroid=centroid,
-            threshold=settings.deviation_threshold,
+            threshold=threshold,
         )
 
         # Persist sequence embeddings + centroid in Supabase when available.
@@ -245,6 +243,7 @@ async def finalize_calibration(session_id: str):
                     user_id=session["user_id"],
                     exercise_id=exercise["id"],
                     session_id=session_id,
+                    threshold=threshold,
                 )
         except Exception as e:
             logger.warning(f"Unable to persist calibration embeddings/centroid: {e}")

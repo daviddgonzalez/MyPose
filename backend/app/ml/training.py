@@ -48,7 +48,8 @@ def _build_dataset(
     Supported:
       - "fit3d": Fit3DContrastiveDataset over Fit3D raw/preprocessed data.
       - "ntu":   NTUContrastiveDataset over NTU RGB+D 120 .skeleton files.
-      - "both":  ConcatDataset of the two.
+      - "cmu":   CMUContrastiveDataset over cgspeed BVH conversion of CMU Mocap.
+      - "both":  ConcatDataset of Fit3D + NTU.
     """
     name = dataset_name.lower()
     if name == "fit3d":
@@ -56,12 +57,15 @@ def _build_dataset(
     if name == "ntu":
         from app.ml.dataset_ntu import NTUContrastiveDataset
         return NTUContrastiveDataset(data_dir=data_dir, sequence_length=sequence_length)
+    if name == "cmu":
+        from app.ml.dataset_cmu import CMUContrastiveDataset
+        return CMUContrastiveDataset(data_dir=data_dir, sequence_length=sequence_length)
     if name == "both":
         from app.ml.dataset_ntu import NTUContrastiveDataset
         fit = Fit3DContrastiveDataset(data_dir=data_dir, sequence_length=sequence_length)
         ntu = NTUContrastiveDataset(data_dir=data_dir, sequence_length=sequence_length)
         return torch.utils.data.ConcatDataset([fit, ntu])
-    raise ValueError(f"Unknown dataset: {dataset_name!r}. Use one of: fit3d, ntu, both")
+    raise ValueError(f"Unknown dataset: {dataset_name!r}. Use one of: fit3d, ntu, cmu, both")
 
 
 def pretrain(
@@ -88,7 +92,8 @@ def pretrain(
     augmentation policy and app/ml/siamese.py:NTXentLoss for the loss.
 
     Args:
-        data_dir: Root data directory (contains fit3d/, ntu/, etc.).
+        data_dir: Root data directory (contains fit3d/, ntu/, etc.) or, for
+                  --dataset cmu, the CMU dataset root (e.g., ~/datasets/cmu-mocap).
         checkpoint_dir: Directory to save checkpoints.
         epochs: Number of training epochs.
         batch_size: Training batch size (NT-Xent benefits from larger batches).
@@ -99,7 +104,7 @@ def pretrain(
         sequence_length: Temporal length for normalization.
         embedding_dim: Embedding dimension.
         log_interval: Log every N batches.
-        dataset_name: "fit3d", "ntu", or "both".
+        dataset_name: "fit3d", "ntu", "cmu", or "both".
         resume_from: Path to a checkpoint to warm-start from (e.g., NTU pretrain
                      to seed a Fit3D fine-pretrain). None = train from scratch.
         checkpoint_suffix: Appended to checkpoint filenames so two-stage runs
@@ -414,7 +419,7 @@ if __name__ == "__main__":
     pt.add_argument("--embedding-dim", type=int, default=256)
     pt.add_argument(
         "--dataset",
-        choices=["fit3d", "ntu", "both"],
+        choices=["fit3d", "ntu", "cmu", "both"],
         default="fit3d",
         help="Which dataset to pretrain on",
     )

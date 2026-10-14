@@ -13,7 +13,6 @@ import { getStoredUser } from "@/lib/user";
 
 type Step = "select" | "record" | "review" | "finalize";
 
-const MIN_SEQUENCE_SECONDS = 5;
 const MIN_TOTAL_SECONDS = 30;
 const MAX_SEQUENCES = 8;
 
@@ -91,9 +90,7 @@ export default function CalibrationWizard({
     setCurrentFrames([]);
     recordingStartRef.current = Date.now();
     setIsRecording(true);
-    setStatusMsg(
-      `Recording… perform the exercise with correct form (min ${MIN_SEQUENCE_SECONDS}s per take)`
-    );
+    setStatusMsg("Recording… perform the exercise with correct form");
   }, []);
 
   const handleStopRecording = useCallback(async () => {
@@ -102,13 +99,6 @@ export default function CalibrationWizard({
     recordingStartRef.current = null;
     setIsRecording(false);
 
-    if (elapsed < MIN_SEQUENCE_SECONDS) {
-      setStatusMsg(
-        `Take was only ${elapsed.toFixed(1)}s — need at least ${MIN_SEQUENCE_SECONDS}s. Discarded; try again.`
-      );
-      setCurrentFrames([]);
-      return;
-    }
     if (currentFrames.length < 10) {
       setStatusMsg("Too few frames captured — check webcam permissions and try again.");
       setCurrentFrames([]);
@@ -246,8 +236,8 @@ export default function CalibrationWizard({
                 consistency against your own baseline.
               </p>
               <p className="text-sm text-[var(--pke-text-secondary)] leading-relaxed">
-                <strong className="text-[var(--pke-text-primary)]">Cost:</strong> ~30 seconds of
-                recording, split into takes of at least 5 seconds each.
+                <strong className="text-[var(--pke-text-primary)]">Cost:</strong> ~30 seconds
+                of total recording, any number of takes.
               </p>
             </div>
 
@@ -304,7 +294,7 @@ export default function CalibrationWizard({
                   Record Sequences
                 </h3>
                 <p className="text-sm text-[var(--pke-text-secondary)]">
-                  {totalSeconds.toFixed(1)}s / {MIN_TOTAL_SECONDS}s recorded — min {MIN_SEQUENCE_SECONDS}s per take
+                  {totalSeconds.toFixed(1)}s / {MIN_TOTAL_SECONDS}s recorded — any number of takes
                 </p>
               </div>
 
@@ -363,11 +353,6 @@ export default function CalibrationWizard({
                 <span className="w-3 h-3 rounded-full bg-[var(--pke-danger)] animate-pulse" />
                 <span className="text-[var(--pke-danger)] font-medium">
                   Recording — {currentSeqSeconds.toFixed(1)}s
-                  {currentSeqSeconds < MIN_SEQUENCE_SECONDS && (
-                    <span className="ml-2 text-[var(--pke-text-muted)] font-normal">
-                      (need {(MIN_SEQUENCE_SECONDS - currentSeqSeconds).toFixed(1)}s more)
-                    </span>
-                  )}
                 </span>
               </div>
             )}

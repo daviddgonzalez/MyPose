@@ -212,10 +212,15 @@ export default function WebcamCapture({
           muted
         />
 
+        {/* Fixed-size skeleton inset in the top-left of the video. Using
+            pixel-fixed canvas dims (decoupled from the camera resolution
+            props above) keeps the overlay behavior identical across both
+            CalibrationWizard and LiveSession, regardless of how their
+            parent containers size the video. */}
         <PoseOverlay
           landmarks={currentLandmarks}
-          width={width}
-          height={height}
+          width={240}
+          height={180}
         />
 
         {/* Loading Overlay */}

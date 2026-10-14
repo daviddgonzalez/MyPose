@@ -95,22 +95,40 @@ async def websocket_stream(websocket: WebSocket):
                                 exercise_id=exercise["id"],
                             )
                             if db_record:
+                                # Supabase returns pgvector columns as JSON strings
+                                # ('[0.1,0.2,...]'). Same pattern as routes_evaluate.py.
+                                centroid_raw = db_record["centroid"]
+                                if isinstance(centroid_raw, str):
+                                    centroid_raw = json.loads(centroid_raw)
                                 record = {
-                                    "centroid": np.array(db_record["centroid"], dtype=np.float32),
-                                    "threshold": db_record.get("threshold", threshold),
+                                    "centroid": np.asarray(centroid_raw, dtype=np.float32),
+                                    "threshold": db_record.get("threshold") or threshold,
                                 }
+                                logger.info(
+                                    f"Centroid loaded from Supabase for user={session_user_id} "
+                                    f"exercise={session_exercise} threshold={record['threshold']}"
+                                )
+                            else:
+                                logger.info(
+                                    f"No centroid row in Supabase for user={session_user_id} "
+                                    f"exercise_id={exercise['id']}"
+                                )
+                        else:
+                            logger.warning(
+                                f"Unknown exercise slug '{session_exercise}' — cannot look up centroid"
+                            )
                     except Exception as e:
                         logger.warning(f"Centroid DB lookup failed, falling back to memory: {e}")
 
                     if record is None:
                         record = get_centroid(session_user_id, session_exercise)
+                        if record:
+                            logger.info(
+                                f"Centroid loaded from in-memory store for user={session_user_id}"
+                            )
                     if record:
                         user_centroid = record["centroid"]
                         threshold = record.get("threshold", threshold)
-                        logger.info(
-                            f"Centroid found for user={session_user_id}, "
-                            f"exercise={session_exercise}"
-                        )
                     else:
                         logger.info(
                             f"No centroid for user={session_user_id}, "

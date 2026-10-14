@@ -1,0 +1,42 @@
+# ─────────────────────────────────────────────────────────────────────────
+# Training-only dependency set.
+#
+# Derived by reading every import under backend/app/ml/ and backend/scripts/.
+# The training path touches: torch, numpy, pydantic-settings (app.config) and
+# bvh (app/ml/bvh_loader.py, required by the CMU dataset — the default
+# pretraining corpus). Nothing under app/ml/ imports fastapi, uvicorn,
+# supabase, opencv, mediapipe, websockets, scipy or dtw-python, so none of
+# those are here. Use backend/requirements.txt instead if you also want to
+# run the API on the same box.
+#
+# IMPORTANT — torch and the CPU wheel index:
+#   backend/requirements.txt and the root requirements.txt both carry
+#       --extra-index-url https://download.pytorch.org/whl/cpu
+#   which is correct for the Railway deploy and wrong for a GPU box: it makes
+#   the resolver eligible to pick a CPU-only torch wheel, and then
+#   `--device cuda` fails at the first .to(device). This file deliberately
+#   does NOT pin an index. Install torch first, for the target hardware:
+#
+#       pip install torch --index-url https://download.pytorch.org/whl/cu124   # NVIDIA
+#       pip install torch --index-url https://download.pytorch.org/whl/cpu     # CPU only
+#
+#   then `pip install -r requirements-train.txt`.
+# ─────────────────────────────────────────────────────────────────────────
+
+# ─── Core ────────────────────────────────────────────────────────────────
+torch>=2.2.0            # app/ml/{stgcn,siamese,model,training,dataset*}.py
+numpy>=1.26.0           # everywhere; 2.x is fine (verified on numpy 2.x)
+
+# ─── Configuration ───────────────────────────────────────────────────────
+pydantic-settings>=2.2.0  # app/config.py — imported by training.py:31
+
+# ─── Motion capture ──────────────────────────────────────────────────────
+# Required for --dataset cmu (the default/recommended corpus) and for
+# --dataset both is NOT required. Missing from the root requirements.txt.
+bvh>=0.3                # app/ml/bvh_loader.py:25 `from bvh import Bvh`
+
+# ─── Tests (optional) ────────────────────────────────────────────────────
+# Enough for tests/test_bvh_loader.py, test_cmu_to_mediapipe.py and
+# test_download_cmu_mocap.py (19 tests). tests/test_extraction.py additionally
+# needs mediapipe + opencv and will fail to import without them.
+pytest>=8.0.0

@@ -89,12 +89,17 @@ async def compute_and_store_centroid(
     exercise_id: str,
     session_id: str,
     model_version: str = "v0.1",
+    threshold: Optional[float] = None,
 ) -> dict:
     """
     Compute the mean embedding (centroid) from all calibration sequences
     in a session and store it in calibration_centroids.
 
     Uses a PostgreSQL function for server-side averaging of vector columns.
+
+    If ``threshold`` is provided, persists it alongside the centroid so the
+    Personal-match comparison at evaluation time uses a per-user value
+    instead of the global default in settings.
     """
     client = get_supabase_client()
 
@@ -126,17 +131,18 @@ async def compute_and_store_centroid(
     ]
 
     # Upsert centroid (one per user+exercise pair)
+    payload = {
+        "user_id": user_id,
+        "exercise_id": exercise_id,
+        "centroid": centroid,
+        "model_version": model_version,
+    }
+    if threshold is not None:
+        payload["threshold"] = threshold
+
     result = (
         client.table("calibration_centroids")
-        .upsert(
-            {
-                "user_id": user_id,
-                "exercise_id": exercise_id,
-                "centroid": centroid,
-                "model_version": model_version,
-            },
-            on_conflict="user_id,exercise_id",
-        )
+        .upsert(payload, on_conflict="user_id,exercise_id")
         .execute()
     )
 
