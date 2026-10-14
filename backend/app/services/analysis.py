@@ -19,10 +19,11 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from app.services.extraction import extract_landmarks_from_frames
-from app.services.normalization import normalize_landmarks, compute_joint_angles
-from app.services.strictness import get_profile, get_rom_target, StrictnessProfile
 from app.config import settings
+from app.services.extraction import extract_landmarks_from_frames
+from app.services.normalization import compute_joint_angles, normalize_landmarks
+from app.services.reps import RepResult, grade_reps
+from app.services.strictness import StrictnessProfile, get_profile, get_rom_target
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +60,16 @@ class SessionFeedback:
     passed: bool | None = None              # None = no calibration baseline yet
     distance_to_centroid: float | None = None
     calibration_available: bool = False
+
+    # Per-rep grading. grading_mode is "reps" when the exercise has a rep
+    # grader (overall_score is then the mean rep score), else "session".
+    grading_mode: str = "session"
+    rep_count: int = 0
+    passed_reps: int = 0
+    failed_reps: int = 0
+    reps: list[RepResult] = field(default_factory=list)
+    camera_view: str | None = None
+    notes: list[str] = field(default_factory=list)
 
 
 # Joint names corresponding to the angle triplets in normalization.py
@@ -103,7 +114,8 @@ def analyze_session(
         SessionFeedback with kinematic analysis results.
     """
     total_frames = len(frame_buffer)
-    duration = total_frames / fps if fps > 0 else 0.0
+    times, timing_reliable = _frame_times(frame_buffer, fps)
+    duration = float(times[-1] - times[0]) if total_frames > 1 else 0.0
 
     if total_frames < 5:
         return SessionFeedback(
@@ -137,6 +149,16 @@ def analyze_session(
         # ── Step 5: Compute heuristic score ───────────────────────────
         heuristic_score = _compute_overall_score(joint_summaries, profile, exercise_name)
 
+        # ── Step 5b: Per-rep grading (replaces the heuristic score) ───
+        rep_analysis = grade_reps(
+            landmarks,
+            times,
+            exercise=exercise_name,
+            strictness=profile.level.value,
+            aspect_ratio=_aspect_ratio(frame_buffer),
+            timing_reliable=timing_reliable,
+        )
+
         # ── Step 6: ML personal-match evaluation (when calibration exists) ──
         # The personal match is *not* blended into the overall score. The
         # Textbook score (heuristic) answers "is this textbook form?"; the
@@ -163,20 +185,33 @@ def analyze_session(
             except Exception as e:
                 logger.warning(f"Personal-match embedding failed: {e}")
 
-        overall_score = heuristic_score
-        message = _generate_feedback_message(overall_score, joint_summaries, duration)
-
-        return SessionFeedback(
+        feedback = SessionFeedback(
             strictness_level=profile.level.value,
             total_frames=total_frames,
             duration_seconds=round(duration, 1),
             joint_summaries=joint_summaries,
-            overall_score=round(overall_score, 1),
-            message=message,
+            overall_score=round(heuristic_score, 1),
+            message=_generate_feedback_message(heuristic_score, joint_summaries, duration),
             passed=ml_passed,
             distance_to_centroid=ml_distance,
             calibration_available=calibration_available,
         )
+
+        if rep_analysis is not None:
+            reps = rep_analysis.reps
+            feedback.grading_mode = "reps"
+            feedback.reps = reps
+            feedback.rep_count = len(reps)
+            feedback.passed_reps = sum(r.passed for r in reps)
+            feedback.failed_reps = len(reps) - feedback.passed_reps
+            feedback.overall_score = (
+                round(float(np.mean([r.score for r in reps])), 1) if reps else 0.0
+            )
+            feedback.message = rep_analysis.message
+            feedback.camera_view = rep_analysis.camera_view
+            feedback.notes = rep_analysis.notes
+
+        return feedback
 
     except Exception as e:
         logger.error(f"Session analysis failed: {e}", exc_info=True)
@@ -187,6 +222,29 @@ def analyze_session(
             overall_score=0.0,
             message=f"Analysis encountered an error: {str(e)}. Raw frame data was still captured.",
         )
+
+
+def _frame_times(frame_buffer: list[dict], fps: float) -> tuple[np.ndarray, bool]:
+    """
+    Frame times in seconds from the client's per-frame 't' (ms) timestamps.
+
+    Falls back to evenly spaced frames at `fps` when timestamps are missing
+    or not increasing; the bool reports whether real timestamps were used.
+    """
+    n = len(frame_buffer)
+    stamps = [f.get("t") for f in frame_buffer]
+    if n > 1 and all(isinstance(t, (int, float)) for t in stamps):
+        times = (np.asarray(stamps, dtype=np.float64) - stamps[0]) / 1000.0
+        if np.all(np.diff(times) > 0):
+            return times, True
+    return np.arange(n, dtype=np.float64) / (fps if fps > 0 else 30.0), False
+
+
+def _aspect_ratio(frame_buffer: list[dict], default: float = 4 / 3) -> float:
+    """Median frame width/height reported by the client, else `default`."""
+    ratios = [f["aspect"] for f in frame_buffer
+              if isinstance(f.get("aspect"), (int, float)) and f["aspect"] > 0]
+    return float(np.median(ratios)) if ratios else default
 
 
 def _compute_joint_summaries(angles: np.ndarray, profile: StrictnessProfile, exercise: str) -> list[JointSummary]:

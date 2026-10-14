@@ -97,7 +97,7 @@ export default function LiveSession({ exerciseName, userId }: LiveSessionProps) 
 
     ws.connect();
     wsRef.current = ws;
-  }, [addLog, handleMessage]);
+  }, [addLog, handleMessage, strictness, exerciseName, userId]);
 
   const stopSession = useCallback(() => {
     if (wsRef.current) {
@@ -113,11 +113,14 @@ export default function LiveSession({ exerciseName, userId }: LiveSessionProps) 
   }, [addLog]);
 
   const handleLandmarks = useCallback(
-    (landmarks: { x: number; y: number; z: number }[]) => {
+    (
+      landmarks: { x: number; y: number; z: number; visibility?: number }[],
+      meta: { t: number; aspect: number }
+    ) => {
       if (!isStreaming || !wsRef.current) return;
 
-      const formatted = landmarks.map((lm) => [lm.x, lm.y, lm.z]);
-      wsRef.current.sendFrame(formatted);
+      const formatted = landmarks.map((lm) => [lm.x, lm.y, lm.z, lm.visibility ?? 1]);
+      wsRef.current.sendFrame(formatted, meta);
       setFramesStreamed((prev) => prev + 1);
     },
     [isStreaming]
@@ -348,7 +351,9 @@ export default function LiveSession({ exerciseName, userId }: LiveSessionProps) 
                     Textbook score
                   </p>
                   <p className="text-[11px] text-[var(--pke-text-muted)] mt-0.5">
-                    Generic ROM &amp; stability vs. exercise targets
+                    {sessionFeedback.grading_mode === "reps"
+                      ? `${sessionFeedback.passed_reps}/${sessionFeedback.rep_count} reps with good form`
+                      : "Generic ROM & stability vs. exercise targets"}
                   </p>
                   <p className="text-xs text-[#475569] mt-2 leading-relaxed">
                     {sessionFeedback.message}
@@ -395,6 +400,69 @@ export default function LiveSession({ exerciseName, userId }: LiveSessionProps) 
                   </div>
                 )}
             </div>
+
+            {/* Rep Breakdown */}
+            {sessionFeedback.grading_mode === "reps" && sessionFeedback.reps.length > 0 && (
+              <div className="mb-5">
+                <h4 className="text-[10px] font-extrabold text-[#94a3b8] uppercase tracking-widest mb-3">
+                  Rep Breakdown
+                </h4>
+                <div className="space-y-2">
+                  {sessionFeedback.reps.map((rep) => (
+                    <div
+                      key={rep.index}
+                      className={`px-4 py-2.5 bg-[#f8fafc] border rounded-sm ${
+                        rep.passed ? "border-[#e2e8f0]" : "border-[#ef4444]"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-xs font-bold">
+                          <span className={rep.passed ? "text-[#0f172a]" : "text-[#ef4444]"}>
+                            Rep {rep.index}
+                          </span>
+                          <span
+                            className={`ml-2 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-widest ${
+                              rep.passed
+                                ? "bg-[#10b981]/10 text-[#10b981]"
+                                : "bg-[#ef4444]/10 text-[#ef4444]"
+                            }`}
+                          >
+                            {rep.passed ? "Good" : "Fix"}
+                          </span>
+                        </p>
+                        <span className="text-[10px] font-bold text-[#94a3b8]">
+                          {Math.round(rep.score)}
+                        </span>
+                      </div>
+                      <div className="mt-1.5 flex flex-wrap gap-1.5">
+                        {rep.checks.map((check) => (
+                          <span
+                            key={check.name}
+                            className={`px-1.5 py-0.5 text-[10px] font-semibold border ${
+                              check.passed
+                                ? "border-[#e2e8f0] text-[#64748b]"
+                                : "border-[#ef4444]/40 text-[#ef4444]"
+                            }`}
+                          >
+                            {check.passed ? "✓" : "✗"} {check.label}
+                          </span>
+                        ))}
+                      </div>
+                      {rep.cue && <p className="text-[11px] text-[#ef4444] mt-1.5">{rep.cue}</p>}
+                    </div>
+                  ))}
+                </div>
+                {sessionFeedback.notes.length > 0 && (
+                  <ul className="mt-3 space-y-0.5">
+                    {sessionFeedback.notes.map((note) => (
+                      <li key={note} className="text-[11px] text-[var(--pke-text-muted)]">
+                        {note}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
 
             {/* Joint Breakdown */}
             {sessionFeedback.joint_summaries.length > 0 && (

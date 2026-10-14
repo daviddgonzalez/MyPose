@@ -85,6 +85,14 @@ To support both live tracking and a fallback MVP, the pipeline standardizes arou
 - [x] **Phase 7** — Live Pipeline — WebSocket `ws/v1/stream` buffers frames → `analyze_session` (heuristics always; embeddings when centroid + checkpoint exist)
 - [ ] **Phase 8** — Pre-training (Fit3D) — *partial*: `pretrain` CLI + `Fit3DContrastiveDataset` implemented; **`data/fit3d/` not in repo**; Fit3D→MediaPipe `.npy` preprocessing is out-of-band (documented in `dataset.py`)
 
+## Per-Rep Grading (MVP path)
+
+Rep grading is rule-based and does not need a trained model. [`backend/app/services/reps.py`](backend/app/services/reps.py) splits a session into reps and checks each one against exercise rules. The per-rep score replaces the session heuristic for any exercise that has a grader.
+
+- **Squat** (done): reps are segmented on hip height above the knee, measured in thigh lengths, so it works from the front or the side. Checks: depth, chest up (side view), knees out and level hips (front view), and controlled descent (needs client timestamps). Thresholds scale with strictness.
+- **Other exercises**: still use the session heuristic. Adding one means writing a grader: a rest-high signal, segmentation thresholds and bottom-of-rep checks.
+- The live client now sends a timestamp `t`, the frame `aspect` ratio and visibility with each frame.
+
 ## ML Pipeline Status
 
 *Living assessment (six-stage lifecycle vs code). Evidence paths are from repo root.*

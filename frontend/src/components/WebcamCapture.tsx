@@ -7,7 +7,8 @@ import PoseOverlay from "./PoseOverlay";
 interface WebcamCaptureProps {
   /** Called each frame with extracted landmarks (33 items). */
   onLandmarks?: (
-    landmarks: { x: number; y: number; z: number }[]
+    landmarks: { x: number; y: number; z: number; visibility?: number }[],
+    meta: { t: number; aspect: number }
   ) => void;
   /** Whether to actively process frames. */
   active?: boolean;
@@ -126,19 +127,28 @@ export default function WebcamCapture({
       return;
     }
 
-    const landmarks = detectPose(videoRef.current);
+    const video = videoRef.current;
+    const t = performance.now();
+    const landmarks = detectPose(video, t);
     if (landmarks) {
       const simplified = landmarks.map((lm) => ({
         x: lm.x,
         y: lm.y,
         z: lm.z,
+        visibility: lm.visibility,
       }));
       setCurrentLandmarks(simplified);
-      onLandmarks?.(simplified);
+      // Landmark x/y are normalized per axis; the backend needs the frame's
+      // aspect ratio to measure angles without distortion.
+      const aspect =
+        video.videoWidth && video.videoHeight
+          ? video.videoWidth / video.videoHeight
+          : width / height;
+      onLandmarks?.(simplified, { t, aspect });
     }
 
     animFrameRef.current = requestAnimationFrame(processFrame);
-  }, [active, cameraReady, isReady, detectPose, onLandmarks]);
+  }, [active, cameraReady, isReady, detectPose, onLandmarks, width, height]);
 
   useEffect(() => {
     animFrameRef.current = requestAnimationFrame(processFrame);

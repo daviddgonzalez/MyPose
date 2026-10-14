@@ -82,9 +82,11 @@ export class PKEWebSocket {
 
   /**
    * Send a single frame of landmarks to the server.
-   * landmarks should be a 33-element array of [x, y, z] arrays.
+   * landmarks should be a 33-element array of [x, y, z, visibility?] arrays.
+   * t (ms, performance.now) and aspect (width / height) let the backend time
+   * reps and measure angles without distortion.
    */
-  sendFrame(landmarks: number[][]): void {
+  sendFrame(landmarks: number[][], meta?: { t: number; aspect: number }): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       console.warn("WebSocket not connected, cannot send frame");
       return;
@@ -94,6 +96,7 @@ export class PKEWebSocket {
       type: "frame",
       frame_idx: this.frameIdx++,
       landmarks,
+      ...meta,
     };
 
     this.ws.send(JSON.stringify(message));

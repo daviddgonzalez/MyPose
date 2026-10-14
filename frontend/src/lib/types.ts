@@ -161,7 +161,9 @@ export interface AuthUserResponse {
 export interface WSFrameMessage {
   type: "frame";
   frame_idx: number;
-  landmarks: number[][]; // [[x, y, z], ...] — 33 entries
+  landmarks: number[][]; // [[x, y, z, visibility?], ...] — 33 entries
+  t?: number; // capture time, ms (performance.now)
+  aspect?: number; // frame width / height
 }
 
 export interface WSAckMessage {
@@ -201,6 +203,29 @@ export interface JointSummary {
   issues: string[];
 }
 
+export interface RepCheck {
+  name: string;
+  label: string;
+  passed: boolean;
+  value: number;
+  target: number;
+  unit: "deg" | "s" | "ratio" | "thigh";
+  score: number; // 0–1
+  cue: string;
+}
+
+export interface RepResult {
+  index: number; // 1-based
+  start_time: number;
+  bottom_time: number;
+  end_time: number;
+  score: number; // 0–100
+  passed: boolean;
+  checks: RepCheck[];
+  cue: string | null;
+  metrics: Record<string, number>;
+}
+
 export interface WSFeedbackMessage {
   type: "session_feedback";
   strictness_level: StrictnessLevel;
@@ -213,6 +238,14 @@ export interface WSFeedbackMessage {
   passed?: boolean | null;
   distance_to_centroid?: number | null;
   calibration_available: boolean;
+  // "reps" when the exercise has per-rep grading; overall_score is then the mean rep score
+  grading_mode: "reps" | "session";
+  rep_count: number;
+  passed_reps: number;
+  failed_reps: number;
+  reps: RepResult[];
+  camera_view?: "side" | "front" | "unknown" | null;
+  notes: string[];
 }
 
 export type WSIncomingMessage =
