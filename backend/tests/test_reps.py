@@ -5,6 +5,10 @@ Synthetic skeletons are built from a simple 2D squat model so the expected
 depth, lean and knee tracking of every rep are known exactly.
 """
 
+import gzip
+import json
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -246,3 +250,43 @@ def test_walking_to_and_from_camera_does_not_hide_reps():
     result = _grade(lm, times)
     assert len(result.reps) == 5
     assert all(r.passed for r in result.reps)
+
+
+SESSIONS = Path(__file__).parent / "fixtures" / "squat_sessions"
+
+
+def _recorded(name: str):
+    """Grade a real webcam session saved by SESSION_RECORDINGS_DIR."""
+    with gzip.open(SESSIONS / f"{name}.json.gz", "rt") as f:
+        frames = json.load(f)
+    lm = np.array([fr["landmarks"] for fr in frames])
+    times = (np.array([fr["t"] for fr in frames]) - frames[0]["t"]) / 1000.0
+    return grade_reps(lm, times, "squat", aspect_ratio=frames[0]["aspect"])
+
+
+@pytest.mark.parametrize("name, view, count", [
+    ("side_2_reps", "side", 2),
+    ("front_3_reps", "front", 3),
+])
+def test_recorded_sessions_count_each_squat_once(name, view, count):
+    result = _recorded(name)
+    assert result.camera_view == view
+    assert len(result.reps) == count
+
+
+@pytest.mark.parametrize("name, first_squat_s", [
+    # Walks in and turns side-on with straight legs before the first squat.
+    ("side_setup_walkin", 11.4),
+    # Knees out of frame while stepping into place.
+    ("side_setup_offframe", 6.5),
+])
+def test_recorded_setup_movement_is_not_a_rep(name, first_squat_s):
+    result = _recorded(name)
+    assert result.reps
+    assert result.reps[0].start_time >= first_squat_s
+
+
+def test_recorded_parallel_front_squats_pass_depth():
+    result = _recorded("front_3_reps")
+    depth = [next(c for c in r.checks if c.name == "depth") for r in result.reps]
+    assert all(c.passed for c in depth)

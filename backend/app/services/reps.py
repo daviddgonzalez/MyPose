@@ -234,7 +234,7 @@ _SQUAT_LIMITS = {
         depth_max=0.35, lean_max=65.0, knee_min=0.75, hip_tilt_max=0.20, descent_min=0.25,
     ),
     "moderate": dict(
-        depth_max=0.15, lean_max=55.0, knee_min=0.85, hip_tilt_max=0.12, descent_min=0.40,
+        depth_max=0.25, lean_max=55.0, knee_min=0.85, hip_tilt_max=0.12, descent_min=0.40,
     ),
     "strict": dict(
         depth_max=0.00, lean_max=50.0, knee_min=0.90, hip_tilt_max=0.08, descent_min=0.60,
@@ -253,6 +253,9 @@ _SQUAT_MAX_REP_S = 10.0
 # Thigh reference window: wide enough to always include a moment of standing
 # between reps, narrow enough to follow the user moving toward the camera.
 _SQUAT_REF_HALF_WINDOW_S = 2.5
+# A dip whose bottom keeps the knee straighter than this is the user walking
+# or turning while setting up, not a squat.
+_SQUAT_MAX_BOTTOM_KNEE_DEG = 150.0
 
 # Hip width / thigh length above this means the camera faces the user.
 _FRONT_VIEW_HIP_RATIO = 0.3
@@ -344,6 +347,13 @@ def _grade_squat(
         min_duration=_SQUAT_MIN_REP_S, max_duration=_SQUAT_MAX_REP_S,
         top=1.0,
     )
+
+    # Hip height at an unseen knee is a guess, so such a dip can't count.
+    legs_seen = left_ok | right_ok
+    segments = [
+        seg for seg in segments
+        if legs_seen[seg[1]] and knee_angle[seg[1]] <= _SQUAT_MAX_BOTTOM_KNEE_DEG
+    ]
 
     reps: list[RepResult] = []
     for n, (start, bottom, end) in enumerate(segments, start=1):

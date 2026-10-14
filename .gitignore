@@ -54,3 +54,6 @@ uploads/
 *.mp4
 *.avi
 *.mov
+
+# Debug session recordings (SESSION_RECORDINGS_DIR): personal pose data
+backend/recordings/
