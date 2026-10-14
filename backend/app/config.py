@@ -61,6 +61,11 @@ class Settings(BaseSettings):
     visibility_threshold: float = 0.5
     num_joints: int = 33
 
+    # ─── Debug ──────────────────────────────────────────
+    # When set, each live session's frames and feedback are saved here as
+    # JSON (landmarks only, no video) for tuning the rep graders.
+    session_recordings_dir: str = ""
+
 
 # Singleton — import this everywhere
 settings = Settings()

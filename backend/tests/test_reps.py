@@ -228,3 +228,21 @@ def test_analyze_session_other_exercises_keep_session_mode():
     fb = analyze_session(frames, exercise_name="plank")
     assert fb.grading_mode == "session"
     assert fb.reps == []
+
+
+def test_walking_to_and_from_camera_does_not_hide_reps():
+    # Regression: the user stands close to the camera at the start and end
+    # (walking back from / up to the computer). Up close their legs look
+    # longer, which used to inflate the session-wide "standing" reference so
+    # that no rep ever got back up to it.
+    lm, _ = _squat_frames([100] * 5, view="side")
+    n = int(2 * FPS)
+    close = lm[0].copy()
+    center = close[:, :2].mean(axis=0)
+    close[:, :2] = center + (close[:, :2] - center) * 1.6
+    pad = np.repeat(close[None], n, axis=0)
+    lm = np.concatenate([pad, lm, pad])
+    times = np.arange(len(lm)) / FPS
+    result = _grade(lm, times)
+    assert len(result.reps) == 5
+    assert all(r.passed for r in result.reps)

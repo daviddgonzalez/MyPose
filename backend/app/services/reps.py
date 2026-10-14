@@ -125,6 +125,34 @@ def _side_mean(left: np.ndarray, right: np.ndarray,
     return (left * lw + right * rw) / (lw + rw)
 
 
+def _rolling_reference(
+    values: np.ndarray,
+    ok: np.ndarray,
+    times: np.ndarray,
+    half_window: float,
+    q: float = 90,
+) -> np.ndarray:
+    """
+    Per-frame q-th percentile of `values` over frames within ±half_window
+    seconds where `ok` is set. NaN where no frame in the window qualifies.
+
+    A rolling reference adapts when the user moves closer to or further from
+    the camera (walking in to start or stop the recording), which a single
+    session-wide reference doesn't.
+    """
+    out = np.full(len(values), np.nan)
+    lo = hi = 0
+    for i, t in enumerate(times):
+        while times[lo] < t - half_window:
+            lo += 1
+        while hi < len(times) and times[hi] <= t + half_window:
+            hi += 1
+        window = values[lo:hi][ok[lo:hi]]
+        if len(window):
+            out[i] = np.percentile(window, q)
+    return out
+
+
 def segment_reps(
     signal: np.ndarray,
     times: np.ndarray,
@@ -132,14 +160,15 @@ def segment_reps(
     exit_drop: float,
     min_duration: float,
     max_duration: float,
+    top: float | None = None,
 ) -> list[tuple[int, int, int]]:
     """
     Find reps in a smoothed signal that rests high and dips during each rep.
 
-    Hysteresis against the session's rest level (95th percentile):
-    a rep starts when the signal drops more than `enter_drop` below rest and
-    ends when it climbs back within `exit_drop` of rest. Reps cut off by the
-    start or end of the recording are dropped.
+    Hysteresis against the rest level `top` (default: the session's 95th
+    percentile): a rep starts when the signal drops more than `enter_drop`
+    below rest and ends when it climbs back within `exit_drop` of rest. Reps
+    cut off by the start or end of the recording are dropped.
 
     Returns:
         List of (start_idx, bottom_idx, end_idx).
@@ -147,7 +176,8 @@ def segment_reps(
     if len(signal) < 3:
         return []
 
-    top = float(np.percentile(signal, 95))
+    if top is None:
+        top = float(np.percentile(signal, 95))
     enter_level = top - enter_drop
     exit_level = top - exit_drop
 
@@ -214,11 +244,15 @@ _SQUAT_LIMITS = {
     ),
 }
 
-# Rep segmentation in thigh lengths of hip height above the knee.
+# Rep segmentation in thigh lengths of hip height above the knee, which is
+# ~1.0 when standing because the thigh reference is the standing thigh.
 _SQUAT_ENTER_DROP = 0.25
 _SQUAT_EXIT_DROP = 0.12
 _SQUAT_MIN_REP_S = 0.3
 _SQUAT_MAX_REP_S = 10.0
+# Thigh reference window: wide enough to always include a moment of standing
+# between reps, narrow enough to follow the user moving toward the camera.
+_SQUAT_REF_HALF_WINDOW_S = 2.5
 
 # Hip width / thigh length above this means the camera faces the user.
 _FRONT_VIEW_HIP_RATIO = 0.3
@@ -250,22 +284,27 @@ def _grade_squat(
                      "Step back so your whole body is in frame."),
         )
 
-    # Thigh length reference: the long end of the 2D hip→knee distance,
-    # i.e. the thigh as seen while standing upright.
-    def thigh_ref(hip: int, knee: int, ok: np.ndarray) -> float:
+    # Thigh length reference per frame: the long end of the 2D hip→knee
+    # distance nearby in time, i.e. the thigh as seen while standing upright
+    # at the user's current distance from the camera.
+    def thigh_ref(hip: int, knee: int, ok: np.ndarray) -> np.ndarray:
         lengths = np.linalg.norm(pt(hip) - pt(knee), axis=1)
-        return float(np.percentile(lengths[ok], 95)) if ok.any() else np.nan
+        return _rolling_reference(lengths, ok, times, _SQUAT_REF_HALF_WINDOW_S)
 
     ref_l = thigh_ref(L_HIP, L_KNEE, left_ok)
     ref_r = thigh_ref(R_HIP, R_KNEE, right_ok)
-    thigh = float(np.nanmean([ref_l, ref_r]))
-    if not np.isfinite(thigh) or thigh < 1e-4:
+    both = np.stack([ref_l, ref_r])
+    has_ref = ~np.isnan(both).all(axis=0)
+    if not has_ref.any() or np.nanmax(both) < 1e-4:
         return RepAnalysis(
             reps=[], camera_view="unknown",
             message="Couldn't measure your legs. Make sure your hips and knees are in frame.",
         )
-    ref_l = ref_l if np.isfinite(ref_l) else thigh
-    ref_r = ref_r if np.isfinite(ref_r) else thigh
+    thigh = np.full(len(times), np.nan)
+    thigh[has_ref] = np.nanmean(both[:, has_ref], axis=0)
+    thigh = np.maximum(_fill_nans(thigh), 1e-4)
+    ref_l = np.where(np.isnan(ref_l), thigh, ref_l)
+    ref_r = np.where(np.isnan(ref_r), thigh, ref_r)
 
     # Hip height above the knee in thigh lengths: ~1 standing, 0 at parallel.
     # Uses only the vertical axis, so it reads the same from front or side.
@@ -279,7 +318,7 @@ def _grade_squat(
 
     # Camera view from how far apart the hips appear relative to the thigh.
     hip_width = np.abs(pt(L_HIP)[:, 0] - pt(R_HIP)[:, 0])
-    view = "front" if float(np.median(hip_width)) / thigh >= _FRONT_VIEW_HIP_RATIO else "side"
+    view = "front" if float(np.median(hip_width / thigh)) >= _FRONT_VIEW_HIP_RATIO else "side"
 
     # Per-frame metrics, smoothed, read at each rep's bottom.
     shoulder_mid = (pt(L_SHOULDER) + pt(R_SHOULDER)) / 2
@@ -303,6 +342,7 @@ def _grade_squat(
         hip_height_s, times,
         enter_drop=_SQUAT_ENTER_DROP, exit_drop=_SQUAT_EXIT_DROP,
         min_duration=_SQUAT_MIN_REP_S, max_duration=_SQUAT_MAX_REP_S,
+        top=1.0,
     )
 
     reps: list[RepResult] = []
@@ -329,7 +369,7 @@ def _grade_squat(
             ), 1.0))
         else:
             # Knee tracking only means something when the feet are apart.
-            if ankle_width_s[bottom] >= 0.15 * thigh:
+            if ankle_width_s[bottom] >= 0.15 * thigh[bottom]:
                 ratio = float(knee_ratio[bottom])
                 ok = ratio >= limits["knee_min"]
                 checks.append((RepCheck(

@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import asdict
+from datetime import datetime
+from pathlib import Path
 
 import numpy as np
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -34,6 +36,23 @@ def store_centroid(user_id: str, exercise: str, centroid: np.ndarray, threshold:
         "threshold": threshold,
     }
     logger.info(f"Centroid stored: user={user_id}, exercise={exercise}")
+
+
+def _save_recording(
+    frames: list[dict], exercise: str, strictness: str, feedback: dict
+) -> None:
+    """Write a session's frames + feedback to settings.session_recordings_dir."""
+    out_dir = Path(settings.session_recordings_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / f"{datetime.now():%Y%m%d-%H%M%S}_{exercise}.json"
+    payload = {
+        "exercise": exercise,
+        "strictness": strictness,
+        "frames": frames,
+        "feedback": feedback,
+    }
+    path.write_text(json.dumps(payload))
+    logger.info(f"Session recording saved: {path.resolve()}")
 
 
 def get_centroid(user_id: str, exercise: str) -> dict | None:
@@ -131,6 +150,14 @@ async def websocket_stream(websocket: WebSocket):
                 feedback_dict = asdict(feedback)
                 feedback_dict["type"] = "session_feedback"
                 await websocket.send_json(feedback_dict)
+
+                if settings.session_recordings_dir:
+                    try:
+                        _save_recording(
+                            frame_buffer, session_exercise, session_strictness, feedback_dict
+                        )
+                    except Exception as e:
+                        logger.warning(f"Failed to save session recording: {e}")
 
                 # Then send the session_end message (signals completion)
                 await websocket.send_json({
