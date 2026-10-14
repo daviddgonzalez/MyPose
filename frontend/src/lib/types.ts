@@ -224,6 +224,7 @@ export interface RepResult {
   checks: RepCheck[];
   cue: string | null;
   metrics: Record<string, number>;
+  side?: "left" | "right" | null; // one-sided reps (lunge)
 }
 
 export interface WSFeedbackMessage {
@@ -238,8 +239,9 @@ export interface WSFeedbackMessage {
   passed?: boolean | null;
   distance_to_centroid?: number | null;
   calibration_available: boolean;
-  // "reps" when the exercise has per-rep grading; overall_score is then the mean rep score
-  grading_mode: "reps" | "session";
+  // "reps" when the exercise has per-rep grading (overall_score is the mean rep score),
+  // "hold" for isometrics like plank (reps holds the one graded hold)
+  grading_mode: "reps" | "hold" | "session";
   rep_count: number;
   passed_reps: number;
   failed_reps: number;

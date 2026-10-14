@@ -188,3 +188,17 @@ class TestComputeJointAngles:
         angles = compute_joint_angles(coords)
         assert np.all(angles >= 0.0)
         assert np.all(angles <= np.pi + 1e-6)
+
+
+def test_shoulder_angle_is_hip_shoulder_elbow():
+    """Regression: the shoulder triplet used the shoulder twice (always 90°)."""
+    coords = np.zeros((2, 33, 3), dtype=np.float32)
+    for hip, sh, el in ((RIGHT_HIP, RIGHT_SHOULDER, 14), (LEFT_HIP, LEFT_SHOULDER, 13)):
+        coords[:, hip] = [0.0, 1.0, 0.0]
+        coords[:, sh] = [0.0, 0.5, 0.0]
+        coords[0, el] = [0.0, 0.8, 0.0]   # arm hanging down → 0°
+        coords[1, el] = [0.3, 0.5, 0.0]   # arm raised forward to horizontal → 90°
+    angles = np.degrees(compute_joint_angles(coords))
+    for col in (1, 3):  # Right Shoulder, Left Shoulder
+        assert angles[0, col] == pytest.approx(0.0, abs=0.1)  # float32 arccos near 1
+        assert angles[1, col] == pytest.approx(90.0, abs=0.1)

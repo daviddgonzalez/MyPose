@@ -62,7 +62,8 @@ class SessionFeedback:
     calibration_available: bool = False
 
     # Per-rep grading. grading_mode is "reps" when the exercise has a rep
-    # grader (overall_score is then the mean rep score), else "session".
+    # grader (overall_score is then the mean rep score), "hold" for
+    # isometrics (one result per hold), else "session".
     grading_mode: str = "session"
     rep_count: int = 0
     passed_reps: int = 0
@@ -199,7 +200,7 @@ def analyze_session(
 
         if rep_analysis is not None:
             reps = rep_analysis.reps
-            feedback.grading_mode = "reps"
+            feedback.grading_mode = rep_analysis.mode
             feedback.reps = reps
             feedback.rep_count = len(reps)
             feedback.passed_reps = sum(r.passed for r in reps)

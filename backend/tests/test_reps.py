@@ -92,8 +92,11 @@ def _grade(lm, times, **kw):
 def test_supports():
     assert supports("squat")
     assert supports("Squat")
-    assert not supports("plank")
-    assert grade_reps(np.zeros((10, 33, 4)), np.arange(10.0), "plank") is None
+    for slug in ("deadlift", "barbell_biceps_curl", "overhead_press", "lunge",
+                 "push_up", "plank"):
+        assert supports(slug)
+    assert not supports("burpee")
+    assert grade_reps(np.zeros((10, 33, 4)), np.arange(10.0), "burpee") is None
 
 
 def test_segment_counts_dips_and_ignores_partial_edges():
@@ -229,7 +232,7 @@ def test_analyze_session_uses_rep_grading_with_timestamps():
 def test_analyze_session_other_exercises_keep_session_mode():
     lm, _ = _squat_frames([100], view="side")
     frames = [{"landmarks": lm[i].tolist()} for i in range(len(lm))]
-    fb = analyze_session(frames, exercise_name="plank")
+    fb = analyze_session(frames, exercise_name="burpee")
     assert fb.grading_mode == "session"
     assert fb.reps == []
 

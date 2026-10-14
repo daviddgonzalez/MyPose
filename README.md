@@ -89,8 +89,20 @@ To support both live tracking and a fallback MVP, the pipeline standardizes arou
 
 Rep grading is rule-based and does not need a trained model. [`backend/app/services/reps.py`](backend/app/services/reps.py) splits a session into reps and checks each one against exercise rules. The per-rep score replaces the session heuristic for any exercise that has a grader.
 
-- **Squat** (done): reps are segmented on hip height above the knee, measured in thigh lengths, so it works from the front or the side. Checks: depth, chest up (side view), knees out and level hips (front view), and controlled descent (needs client timestamps). Thresholds scale with strictness.
-- **Other exercises**: still use the session heuristic. Adding one means writing a grader: a rest-high signal, segmentation thresholds and bottom-of-rep checks.
+Every exercise in the catalog has a grader. Each rep must be a real bend of the main joint with that joint visible, so walking in and stepping into place don't count. This rule comes from real recordings.
+
+| Exercise | Reps counted on | Checks | Best camera view |
+|---|---|---|---|
+| Squat | Hip height above the knee (thigh lengths) | Depth; chest up (side); knees out and level hips (front); controlled descent | Either |
+| Lunge | Front-leg hip height | Depth; front shin and torso upright (side); controlled descent; reports which leg | Side |
+| Deadlift | Hip angle | Lockout; no lean back; hips and chest rise together (skipped for RDL-style); controlled lowering | Side only |
+| Biceps curl | Elbow angle | Full curl; full extension; elbows pinned; no swinging; slow lowering | Either |
+| Overhead press | Wrist height above the shoulder (arm lengths) | Lockout; ribs down (side); even arms (front); controlled lowering | Either |
+| Push-up | Elbow angle, only while lying | Depth; lockout; straight body with a sag or pike cue (side); controlled descent | Side |
+| Plank | One graded hold (`grading_mode: "hold"`) | Straight body; steady hips; reports hold time | Side |
+
+Only squat has been checked against real footage so far, in the four sessions under `backend/tests/fixtures/squat_sessions/`. The thresholds for the other exercises are first guesses checked only on synthetic skeletons. Recording each one with `SESSION_RECORDINGS_DIR` set and adding fixtures is the next step.
+
 - The live client now sends a timestamp `t`, the frame `aspect` ratio and visibility with each frame.
 
 ## ML Pipeline Status

@@ -169,10 +169,10 @@ def compute_joint_angles(coords: np.ndarray) -> np.ndarray:
     angle_triplets = [
         # Right arm
         (RIGHT_SHOULDER, 14, 16),  # shoulder → elbow → wrist
-        (12, RIGHT_SHOULDER, 14),  # hip-adjacent → shoulder → elbow
+        (RIGHT_HIP, RIGHT_SHOULDER, 14),  # hip → shoulder → elbow
         # Left arm
         (LEFT_SHOULDER, 13, 15),   # shoulder → elbow → wrist
-        (11, LEFT_SHOULDER, 13),   # hip-adjacent → shoulder → elbow
+        (LEFT_HIP, LEFT_SHOULDER, 13),   # hip → shoulder → elbow
         # Right leg
         (RIGHT_HIP, 26, 28),      # hip → knee → ankle
         (0, RIGHT_HIP, 26),       # nose/root → hip → knee (trunk angle)

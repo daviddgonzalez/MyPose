@@ -353,6 +353,10 @@ export default function LiveSession({ exerciseName, userId }: LiveSessionProps) 
                   <p className="text-[11px] text-[var(--pke-text-muted)] mt-0.5">
                     {sessionFeedback.grading_mode === "reps"
                       ? `${sessionFeedback.passed_reps}/${sessionFeedback.rep_count} reps with good form`
+                      : sessionFeedback.grading_mode === "hold"
+                      ? sessionFeedback.reps.length > 0
+                        ? `Held ${Math.round(sessionFeedback.reps[0].metrics.hold_s ?? 0)}s`
+                        : "No hold detected"
                       : "Generic ROM & stability vs. exercise targets"}
                   </p>
                   <p className="text-xs text-[#475569] mt-2 leading-relaxed">
@@ -402,10 +406,10 @@ export default function LiveSession({ exerciseName, userId }: LiveSessionProps) 
             </div>
 
             {/* Rep Breakdown */}
-            {sessionFeedback.grading_mode === "reps" && sessionFeedback.reps.length > 0 && (
+            {sessionFeedback.grading_mode !== "session" && sessionFeedback.reps.length > 0 && (
               <div className="mb-5">
                 <h4 className="text-[10px] font-extrabold text-[#94a3b8] uppercase tracking-widest mb-3">
-                  Rep Breakdown
+                  {sessionFeedback.grading_mode === "hold" ? "Hold Breakdown" : "Rep Breakdown"}
                 </h4>
                 <div className="space-y-2">
                   {sessionFeedback.reps.map((rep) => (
@@ -418,7 +422,10 @@ export default function LiveSession({ exerciseName, userId }: LiveSessionProps) 
                       <div className="flex items-center justify-between gap-3">
                         <p className="text-xs font-bold">
                           <span className={rep.passed ? "text-[#0f172a]" : "text-[#ef4444]"}>
-                            Rep {rep.index}
+                            {sessionFeedback.grading_mode === "hold" ? "Hold" : `Rep ${rep.index}`}
+                            {rep.side && (
+                              <span className="ml-1 font-normal text-[#64748b]">({rep.side} leg)</span>
+                            )}
                           </span>
                           <span
                             className={`ml-2 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-widest ${
